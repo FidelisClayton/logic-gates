@@ -1,0 +1,260 @@
+@import "tailwindcss";
+
+@font-face {
+  font-family: "Inter";
+  font-weight: 100 900;
+  font-display: swap;
+  src: url(./assets/inter.woff2) format("woff2");
+}
+
+/* Draft tokens, dark by default. Light follows the system unless data-theme says otherwise. */
+:root {
+  color-scheme: dark;
+  --bg: #08090a; --raised: #141516; --hover: #1a1b1d; --border: rgba(255,255,255,.08); --border-2: rgba(255,255,255,.14);
+  --text: #f4f5f6; --muted: #8a8f98; --faint: #6a6f77; --gate: #d0d3d8; --wire0: #3b3e44;
+  --sig: oklch(0.84 0.19 152); --sig-soft: oklch(0.84 0.19 152/.14); --on-sig: #04140a;
+  --btn: #f4f5f6; --on-btn: #08090a; --dots: rgba(255,255,255,.075); --sel: rgba(255,255,255,.4); --sel-fill: rgba(255,255,255,.04); --danger: #ff8a80;
+  --scrim: rgba(0,0,0,.5);
+  --core: color-mix(in oklab, var(--sig) 14%, white); --glow: var(--sig); --halo-a: .17; --glow-a: .42; --shim: #fff; --bloom-a: .55;
+  --pop-shadow: 0 0 0 1px rgba(255,255,255,.06), 0 16px 40px -8px rgba(0,0,0,.7), 0 4px 12px rgba(0,0,0,.4);
+}
+:root[data-theme=light] {
+  color-scheme: light;
+  --bg: #fbfbfc; --raised: #fff; --hover: #f1f2f4; --border: rgba(0,0,0,.08); --border-2: rgba(0,0,0,.15);
+  --text: #16171a; --muted: #6a6e76; --faint: #767a82; --gate: #2a2c31; --wire0: #c9ccd2;
+  --sig: oklch(0.48 0.17 152); --sig-soft: oklch(0.48 0.17 152/.12); --on-sig: #fff;
+  --btn: #16171a; --on-btn: #fff; --dots: rgba(0,0,0,.09); --sel: rgba(0,0,0,.4); --sel-fill: rgba(0,0,0,.03); --danger: #c8322a;
+  --scrim: rgba(20,22,26,.25);
+  --core: oklch(0.5 0.2 152); --glow: oklch(0.44 0.15 152); --halo-a: .13; --glow-a: .3; --shim: color-mix(in oklab, var(--sig) 35%, white); --bloom-a: .24;
+  --pop-shadow: 0 0 0 1px rgba(0,0,0,.05), 0 16px 40px -8px rgba(0,0,0,.2), 0 4px 12px rgba(0,0,0,.08);
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    color-scheme: light;
+    --bg: #fbfbfc; --raised: #fff; --hover: #f1f2f4; --border: rgba(0,0,0,.08); --border-2: rgba(0,0,0,.15);
+    --text: #16171a; --muted: #6a6e76; --faint: #767a82; --gate: #2a2c31; --wire0: #c9ccd2;
+    --sig: oklch(0.48 0.17 152); --sig-soft: oklch(0.48 0.17 152/.12); --on-sig: #fff;
+    --btn: #16171a; --on-btn: #fff; --dots: rgba(0,0,0,.09); --sel: rgba(0,0,0,.4); --sel-fill: rgba(0,0,0,.03); --danger: #c8322a;
+    --scrim: rgba(20,22,26,.25);
+    --core: oklch(0.5 0.2 152); --glow: oklch(0.44 0.15 152); --halo-a: .13; --glow-a: .3; --shim: color-mix(in oklab, var(--sig) 35%, white); --bloom-a: .24;
+    --pop-shadow: 0 0 0 1px rgba(0,0,0,.05), 0 16px 40px -8px rgba(0,0,0,.2), 0 4px 12px rgba(0,0,0,.08);
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-raised: var(--raised);
+  --color-hover: var(--hover);
+  --color-line: var(--border);
+  --color-line2: var(--border-2);
+  --color-ink: var(--text);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-gate: var(--gate);
+  --color-wire0: var(--wire0);
+  --color-sig: var(--sig);
+  --color-sigsoft: var(--sig-soft);
+  --color-onsig: var(--on-sig);
+  --color-btn: var(--btn);
+  --color-onbtn: var(--on-btn);
+  --color-danger: var(--danger);
+  --color-scrim: var(--scrim);
+  --shadow-pop: var(--pop-shadow);
+}
+@theme {
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+html, body, #root { height: 100%; }
+body {
+  overflow: hidden; background: var(--bg); color: var(--text);
+  font: 13px/1.45 var(--font-sans); font-feature-settings: "cv01", "ss03"; -webkit-font-smoothing: antialiased;
+}
+/* notation panel */
+.nt-v { display: inline-grid; place-items: center; min-width: 22px; height: 20px; padding: 0 6px; border-radius: 4px; font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; flex: none; }
+.nt-v.c1 { background: var(--sig); color: var(--on-sig); }
+.nt-v.c0 { border: 1px solid var(--wire0); color: var(--muted); }
+.nt-row { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 8px; border-radius: 8px; font-size: 14px; font-variant-numeric: tabular-nums; }
+.nt-row.hl { background: var(--hover); box-shadow: inset 0 0 0 1px var(--border-2); }
+@media (pointer: coarse) { .nt-row { min-height: 44px; } }
+.nt-field { position: relative; display: flex; align-items: center; min-height: 48px; padding: 0 14px; overflow: hidden; border: 1px solid var(--border-2); border-radius: 10px; background: var(--bg); font-size: 17px; font-weight: 500; white-space: nowrap; font-variant-numeric: tabular-nums; cursor: text; }
+.nt-field:focus-visible { border-radius: 10px; }
+.nt-field.err { border-color: var(--danger); box-shadow: 0 0 0 3px color-mix(in oklab, var(--danger) 14%, transparent); }
+.nt-typed { display: block; min-width: 0; line-height: 30px; }
+.nt-o { margin: 0 .3em; color: var(--muted); font-weight: 500; }
+.nt-p { color: var(--muted); font-weight: 400; }
+.nt-bad { color: var(--danger); }
+.nt-ph { color: var(--muted); font-weight: 400; font-size: 14px; }
+.nt-ov { display: inline-block; padding-top: 1px; border-top: 1.5px solid currentColor; line-height: 1.15; }
+.nt-miss { display: inline-block; width: 20px; height: 24px; margin: 0 2px; border: 1.5px dashed var(--danger); border-radius: 5px; vertical-align: middle; }
+.nt-caret { display: inline-block; width: 2px; height: 22px; margin: 0 1px; background: var(--text); vertical-align: middle; animation: nt-blink 1.1s steps(1) infinite; }
+.nt-field:not(:focus) .nt-caret { animation: none; opacity: .5; }
+@keyframes nt-blink { 50% { opacity: 0; } }
+.nt-dcaret { position: relative; display: inline-block; width: 3px; height: 30px; margin: 0 3px; border-radius: 2px; background: var(--text); vertical-align: middle; }
+.nt-dcaret::before { content: ""; position: absolute; left: -3px; top: -4px; width: 9px; height: 9px; border-radius: 50%; background: var(--text); }
+.nt-msg { display: flex; gap: 8px; margin: 0; min-height: 18px; font-size: 12.5px; line-height: 1.4; }
+.nt-msg svg { margin-top: 1px; }
+.nt-msg.err { color: var(--danger); }
+.nt-msg.ok, .nt-msg.hint { color: var(--muted); }
+.nt-keys { display: grid; gap: 4px; }
+.nt-key { position: relative; display: grid; place-items: center; height: 46px; border: 1px solid var(--border-2); border-radius: 8px; background: var(--raised); color: var(--text); font-size: 17px; font-weight: 550; touch-action: none; user-select: none; -webkit-user-select: none; cursor: grab; }
+.nt-key:hover { background: var(--hover); }
+.nt-key:active { cursor: grabbing; }
+.nt-key.dragging { opacity: .4; border-style: dashed; }
+.nt-key.nt-kp { color: var(--muted); font-weight: 500; cursor: pointer; }
+.nt-key i { position: absolute; top: 2px; right: 5px; font-size: 11px; font-style: normal; font-weight: 500; color: var(--muted); }
+@media (pointer: coarse) { .nt-key i { display: none; } }
+.nt-ghost { position: fixed; z-index: 50; display: grid; place-items: center; width: 48px; height: 48px; border: 1px solid var(--border-2); border-radius: 10px; background: var(--raised); box-shadow: var(--pop-shadow); font-size: 18px; font-weight: 550; transform: translate(-50%, -50%) rotate(-3deg); pointer-events: none; }
+.nt-seg { display: flex; gap: 2px; height: 40px; padding: 2px; border: 1px solid var(--border-2); border-radius: 8px; background: var(--raised); }
+.nt-seg button { position: relative; flex: 1; min-width: 0; padding: 0 8px; border-radius: 6px; color: var(--muted); font-size: 13px; font-weight: 550; }
+.nt-seg button:hover { background: var(--hover); color: var(--text); }
+.nt-seg button[aria-pressed=true] { background: var(--hover); color: var(--text); box-shadow: inset 0 0 0 1px var(--border); }
+@media (pointer: coarse) { .nt-seg { height: 44px; } }
+
+/* Layout: phone and mid-width pieces. Phone = narrow, or a short touch screen (a phone held sideways). */
+:root { --peek: 64px; }
+@media (max-height: 500px) { :root { --peek: 44px; } }
+body { overscroll-behavior: none; }
+.peek { display: flex; min-width: 0; flex: 1; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; padding-top: 6px; }
+@media (max-height: 500px) {
+  .peek { flex-direction: row; align-items: center; justify-content: flex-start; gap: 12px; padding-top: 0; }
+  .sheet .credit { display: none; }
+}
+@media (pointer: coarse) {
+  kbd { display: none; }
+  .sheet .tt td { height: 32px; }
+  .sheet .tt.covered td { height: 44px; } /* covered OUT cells are tap targets */
+  [data-clip] > div.absolute.top-3.right-3 [role=group] { height: auto; } /* 44px buttons inside the corner groups */
+}
+@media (max-width: 639px), (max-height: 500px) and (pointer: coarse) {
+  [data-clip] > div.absolute.top-3.right-3 { display: none; } /* wire style and Auto format live in the overflow menu and bottom toolbar */
+}
+.parts-sheet { animation: sheet-up .22s cubic-bezier(.16, 1, .3, 1); }
+@media (prefers-reduced-motion: reduce) { .parts-sheet { animation: none; } }
+@keyframes sheet-up { from { transform: translateY(24px); opacity: 0; } }
+
+button { cursor: pointer; }
+button:disabled { cursor: default; }
+::selection { background: var(--sig-soft); }
+@layer base { :focus-visible { outline: 1.5px solid var(--text); outline-offset: 2px; border-radius: 6px; } }
+input { caret-color: var(--sig); }
+* { scrollbar-width: thin; scrollbar-color: var(--border-2) transparent; }
+
+/* Rail glyphs and SVG circuit parts: strokes stay 1.5px at any scale. */
+.g * , .circuit * { vector-effect: non-scaling-stroke; }
+svg.g { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
+
+.wire { fill: none; stroke-linecap: round; stroke-width: 1.5; }
+.w0 { stroke: var(--wire0); }
+.jdot.w1 { fill: var(--core); stroke: none; }
+.jdot.w0 { fill: var(--wire0); stroke: none; }
+.halo { fill: none; stroke: var(--bg); stroke-width: 7; }
+.wsel { fill: none; stroke: var(--sel); stroke-width: 6; stroke-linecap: round; opacity: .5; }
+.whit { fill: none; stroke: transparent; stroke-width: 22; cursor: pointer; }
+.body { fill: var(--bg); stroke: var(--gate); stroke-width: 1.5; stroke-linejoin: round; }
+.stub { stroke-width: 1.5; stroke-linecap: round; }
+.chip rect { rx: 4; }
+.chip.c1 rect { fill: var(--sig); }
+.chip.c0 rect { fill: var(--bg); stroke: var(--wire0); }
+.chip text { font: 600 10.5px var(--font-sans); font-variant-numeric: tabular-nums; text-anchor: middle; dominant-baseline: central; }
+.chip.c1 text { fill: var(--on-sig); }
+.chip.c0 text { fill: var(--muted); }
+.port { stroke: none; }
+.port.p1 { fill: var(--sig); }
+.port.p0 { fill: var(--wire0); }
+.port.nc { fill: var(--faint); } /* unconnected: 3:1 against the canvas in both themes */
+.hi { --hc: var(--text); }
+.hi .hh { fill: var(--hc); opacity: .16; }
+.hi .hd { fill: var(--hc); filter: drop-shadow(0 0 3px var(--hc)); }
+.hi { animation: hi-in .14s cubic-bezier(.2, .8, .2, 1); }
+.hi.bad { --hc: var(--danger); animation: flash .7s ease-out forwards; }
+.hi.hov { opacity: 0; animation: none; transition: opacity .12s; }
+@media (hover: hover) { .hitout:hover + .hi.hov { opacity: 1; } }
+@keyframes hi-in { from { opacity: 0; } }
+@keyframes flash { 0% { opacity: 1; } 100% { opacity: 0; } }
+.preview { fill: none; stroke: var(--faint); stroke-width: 1.5; stroke-dasharray: 4 4; pointer-events: none; }
+.nlabel { font: 500 11px var(--font-sans); fill: var(--muted); text-anchor: middle; }
+.swbox { fill: var(--raised); stroke: var(--border-2); }
+.swlbl { font: 600 13px var(--font-sans); fill: var(--text); }
+.track0 { fill: none; stroke: var(--faint); }
+.track1 { fill: var(--sig); }
+.knob0 { fill: var(--muted); }
+.knob1 { fill: var(--on-sig); }
+.lamp0 { fill: var(--bg); stroke: var(--faint); }
+.lamp1 { fill: var(--sig); stroke: none; }
+.lampd { font: 600 20px var(--font-sans); font-variant-numeric: tabular-nums; text-anchor: middle; dominant-baseline: central; }
+.lampd.d1 { fill: var(--on-sig); }
+.lampd.d0 { fill: var(--muted); }
+.sel { fill: var(--sel-fill); stroke: var(--sel); stroke-width: 1; }
+.nodeg { cursor: grab; }
+/* Keyboard focus draws a ring on the node's own box; the default outline would wrap the larger transparent hit area. */
+.nodeg:focus-visible { outline: none; }
+.fring { display: none; fill: none; stroke: var(--text); stroke-width: 1.5; pointer-events: none; }
+.nodeg:focus-visible .fring { display: block; }
+.nodeg.dragging { cursor: grabbing; }
+.tog, .hitout { cursor: pointer; }
+
+/* Truth table */
+table.tt { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+.tt th { font: 500 11px var(--font-sans); color: var(--muted); text-align: center; height: 28px; border-bottom: 1px solid var(--border-2); position: sticky; top: 0; background: var(--bg); }
+.tt th.out, .tt td.out { border-left: 1px solid var(--border); }
+.tt th.out + th.out, .tt td.out + td.out { border-left: 0; }
+.tt td { text-align: center; height: 28px; color: var(--muted); border-bottom: 1px solid var(--border); font-size: 13px; }
+.tt td.v1 { color: var(--text); font-weight: 600; }
+.tt td.out.v1 { color: var(--sig); }
+.tt td.out.v0 { color: var(--muted); }
+.tt tr.now td { background: var(--hover); border-bottom-color: var(--border-2); box-shadow: inset 0 1px 0 var(--border-2); }
+.tt tr.now td.out.v1 { background: var(--sig-soft); }
+.tt tr.now td:first-child { border-radius: 6px 0 0 6px; }
+.tt tr.now td:last-child { border-radius: 0 6px 6px 0; }
+.tt.covered td.out:not(.shown) { color: transparent; background: var(--raised); cursor: pointer; }
+
+/* Command palette rows reuse the rail row look */
+.cmd-row.act { background: var(--hover); }
+
+@media (prefers-reduced-motion: reduce) { .hi, .hi.bad { animation: none; } .hi.bad { opacity: 0; } .hi.hov { transition: none; } }
+.stub.s1 { stroke: var(--core); }
+.stub.s0 { stroke: var(--wire0); }
+
+/* Energy blade: a lit wire is a hot core inside two glow strokes on the same path (no blur filters). Ignition and
+   retraction are played from pulse.js; the hum and shimmer below are the steady state. */
+.bh, .bg, .bc, .bf, .fx path { fill: none; stroke-linecap: round; }
+.bh { stroke: var(--glow); stroke-width: 11; stroke-opacity: var(--halo-a); }
+.bg { stroke: var(--glow); stroke-width: 5; stroke-opacity: var(--glow-a); }
+.bc { stroke: var(--core); stroke-width: 1.8; }
+.blade .bh, .blade .bg { animation: hum var(--hp) ease-in-out var(--hd) infinite; }
+@keyframes hum { 0%, 100% { opacity: 1; } 17% { opacity: .9; } 34% { opacity: .98; } 52% { opacity: .88; } 71% { opacity: 1; } 85% { opacity: .93; } }
+/* A soft brighter section drifting toward the target inside the core; direction reads without dashes. */
+.bf { stroke: var(--shim); stroke-width: 1.4; opacity: .85; stroke-dasharray: 16 110; animation: shimmer 2.4s linear infinite; }
+@keyframes shimmer { to { stroke-dashoffset: -126; } }
+/* One-shot ignition layers: a wide bloom and a bright boost that overshoot then fade, and the leading tip. */
+.fx-bloom { stroke: var(--glow); stroke-width: 14; stroke-opacity: var(--bloom-a); }
+.fx-boost { stroke: var(--shim); stroke-width: 3.2; stroke-opacity: .6; }
+.fx-tip { stroke: var(--shim); stroke-width: 3.4; stroke-dasharray: 14 99999; filter: drop-shadow(0 0 5px var(--glow)); }
+@media (prefers-reduced-motion: reduce) { .blade .bh, .blade .bg { animation: none; } .bf { display: none; } }
+/* Magnet guide while a dragged port is level with the port it is wired to. */
+.guide { stroke: var(--sig); stroke-width: 1; stroke-dasharray: 3 4; opacity: .55; }
+
+/* canvas zoom */
+/* Strokes don't scale (non-scaling-stroke), so a wire's hit stroke is already in screen px; widen it for fingers. */
+@media (pointer: coarse) { .whit { stroke-width: 44; } }
+.circuit { overscroll-behavior: contain; }
+
+/* gate popover */
+.dim { opacity: .34; }
+.nodeg, .wire, .blade, .jdot, .chip, .port { transition: opacity .15s; }
+.gpop { display: flex; flex-direction: column; gap: 6px; min-width: 212px; max-width: 300px; padding: 12px 14px; border-radius: 14px; box-shadow: var(--pop-shadow); }
+.gpop-tail { fill: var(--raised); }
+.gpop .gh { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.gpop .gn { flex: 1; }
+.gpop .gx { font-size: 20px; font-weight: 500; line-height: 1.6; white-space: nowrap; overflow-x: auto; font-variant-numeric: tabular-nums; }
+.gpop .gi { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.gpop .mchip { display: inline-flex; gap: 4px; height: 22px; align-items: center; padding: 0 7px; border-radius: 6px; background: var(--hover); color: var(--text); font-variant-numeric: tabular-nums; }
+.gpop .mchip b { font-weight: 600; }
+.vchip { display: inline-grid; place-items: center; min-width: 22px; height: 20px; padding: 0 6px; border-radius: 4px; font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.vchip.c1 { background: var(--sig); color: var(--on-sig); }
+.vchip.c0 { border: 1px solid var(--wire0); color: var(--muted); }
+@media (prefers-reduced-motion: no-preference) { .gpop { animation: pin .16s cubic-bezier(.16, 1, .3, 1); } }
+@keyframes pin { from { opacity: 0; transform: translateY(4px); } }
+@media (prefers-reduced-motion: reduce) { .nodeg, .wire, .blade, .jdot, .chip { transition: none; } }
+[data-radix-popper-content-wrapper]:has(> .gpop) { pointer-events: none; }
