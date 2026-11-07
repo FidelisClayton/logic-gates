@@ -13,7 +13,7 @@ npm install
 npm run dev        # http://127.0.0.1:5173
 npm run build      # static site in dist/
 npm run preview    # serve dist/ on 127.0.0.1
-npm test           # node --test src/
+npm test           # node --test
 ```
 
 Live at https://fidelisclayton.github.io/logic-gates/. Every push to `main` runs the tests, builds and deploys to GitHub Pages (`.github/workflows/deploy.yml`).
