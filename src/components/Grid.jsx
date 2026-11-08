@@ -18,9 +18,13 @@ export default function Grid({ host, view, size }) {
   useEffect(() => {
     const c = cv.current, S = st.current;
     const ctx = c.getContext('2d');
+    // The build minifies --dots to hex (#ffffff13), so let the canvas normalise it: it reads back as #rrggbb or rgba(r, g, b, a).
     const readColor = () => {
-      const m = getComputedStyle(c).getPropertyValue('--dots').match(/[\d.]+/g) ?? [255, 255, 255, 0.075];
-      S.rgb = m.slice(0, 3).join(','); S.a = +(m[3] ?? 1);
+      ctx.fillStyle = 'rgba(255,255,255,.075)';
+      ctx.fillStyle = getComputedStyle(c).getPropertyValue('--dots').trim() || ctx.fillStyle;
+      const f = ctx.fillStyle;
+      const m = f[0] === '#' ? [...f.slice(1).match(/../g).map((h) => parseInt(h, 16)), 1] : f.match(/[\d.]+/g).map(Number);
+      S.rgb = m.slice(0, 3).join(','); S.a = m[3] ?? 1;
     };
     readColor();
 
