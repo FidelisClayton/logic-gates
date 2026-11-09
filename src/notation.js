@@ -1,13 +1,12 @@
 // Boolean notation: circuit <-> expression. Pure, no DOM. Contracts in docs/plan-notation.md.
-import { GATES, nextLabel } from './logic.js';
+import { GATES, MAX_NODES, nextLabel } from './logic.js';
 import { autoLayout } from './layout.js';
-import { bounds, GRID } from './geometry.js';
+import { bounds, clampCoord, GRID } from './geometry.js';
 import { newId } from './ids.js';
 
 const KIDS = ['and', 'or', 'xor'];
 const isNary = (e) => KIDS.includes(e.t);
 const KIND = { NOT: [null, 1], AND: ['and'], AND3: ['and'], NAND: ['and', 1], OR: ['or'], NOR: ['or', 1], XOR: ['xor'], XNOR: ['xor', 1] };
-const hasHole = (e) => e.t === 'hole' || (e.a ? hasHole(e.a) : e.args ? e.args.some(hasHole) : false);
 
 // ---- circuit -> expressions
 
@@ -15,7 +14,12 @@ export function circuitExprs(circuit) {
   const byId = new Map(circuit.nodes.map((n) => [n.id, n]));
   const feeding = new Map();
   for (const w of circuit.wires) feeding.set(`${w.to}:${w.port}`, w);
-  const nodes = {};
+  const nodes = Object.create(null);
+  const holes = new WeakMap();
+  const hasHole = (e) => {
+    if (!holes.has(e)) holes.set(e, e.t === 'hole' || (e.a ? hasHole(e.a) : e.args ? e.args.some(hasHole) : false));
+    return holes.get(e);
+  };
   const order = [];
   const visiting = new Set();
   const expr = (id) => {
@@ -70,12 +74,32 @@ const PREC = { or: 0, xor: 1, and: 2 };
 // Does child `c` need brackets inside a `parent` n-ary node? Same-type nesting is associative, so it needs none.
 export const needsParens = (parent, c) => isNary(c) && c.t !== parent && PREC[c.t] < PREC[parent];
 
+// Count expanded nodes, including repeated shared branches, without expanding the DAG.
+export function exprTooLarge(expr) {
+  const sizes = new WeakMap();
+  const count = (e) => {
+    if (sizes.has(e)) return sizes.get(e);
+    let size = 1;
+    for (const child of e.args ?? (e.a ? [e.a] : [])) {
+      size += count(child);
+      if (size > 1000) { size = 1001; break; }
+    }
+    sizes.set(e, size);
+    return size;
+  };
+  return count(expr) > 1000;
+}
+
 // Plain text: NOT is a postfix "'" so it survives copy and aria-labels.
 export function exprText(e) {
-  if (e.t === 'var') return e.name;
-  if (e.t === 'hole') return '?';
-  if (e.t === 'not') return (isNary(e.a) ? `(${exprText(e.a)})` : exprText(e.a)) + "'";
-  return e.args.map((c) => (needsParens(e.t, c) ? `(${exprText(c)})` : exprText(c))).join(JOIN[e.t]);
+  if (exprTooLarge(e)) return '…';
+  const text = (e) => {
+    if (e.t === 'var') return e.name;
+    if (e.t === 'hole') return '?';
+    if (e.t === 'not') return (isNary(e.a) ? `(${text(e.a)})` : text(e.a)) + "'";
+    return e.args.map((c) => (needsParens(e.t, c) ? `(${text(c)})` : text(c))).join(JOIN[e.t]);
+  };
+  return text(e);
 }
 
 // ---- editor: text -> tokens -> expression
@@ -112,6 +136,7 @@ const mk = (t, args) => {
 };
 
 export function parseTokens(tokens) {
+  if (tokens.length > 1000) return { ok: false, error: { code: 'tooComplex' } };
   if (!tokens.length) return { ok: false, error: { code: 'empty', at: 0 } };
   let i = 0;
   const fail = (code, at) => {
@@ -157,6 +182,7 @@ export function parseTokens(tokens) {
     if (i < tokens.length) fail('unopened', i);
     return { ok: true, expr };
   } catch (error) {
+    if (error instanceof RangeError) return { ok: false, error: { code: 'tooComplex' } };
     if (error.code) return { ok: false, error };
     throw error;
   }
@@ -212,6 +238,8 @@ export function exprToCircuit(expr, base, { mode = 'replace' } = {}) {
   const out = put('OUTPUT', { label: nextLabel(add ? base : { nodes: [] }, 'OUTPUT') });
   wire(root, out, 0);
 
+  if ((add ? base.nodes.length : 0) + nodes.length - stand.size > MAX_NODES) return null;
+
   // Reused inputs live in the base circuit: lay out with them, then drop the stand-ins and point wires at the originals.
   const laid = autoLayout({ name: '', nodes, wires });
   let part = laid.nodes;
@@ -219,7 +247,7 @@ export function exprToCircuit(expr, base, { mode = 'replace' } = {}) {
     const bb = base.nodes.length && bounds(base);
     const nb = bounds(laid);
     const dy = bb ? bb.y1 + 2 * GRID - nb.y0 : 0;
-    part = part.map((n) => ({ ...n, y: n.y + dy }));
+    part = part.map((n) => ({ ...n, y: clampCoord(n.y + dy) }));
   }
   const kept = part.filter((n) => !stand.has(n.id));
   const keptWires = wires.map((w) => ({ ...w, from: stand.get(w.from) ?? w.from }));

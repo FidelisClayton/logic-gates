@@ -26,11 +26,16 @@ function opEnd(tk, i) {
 const text = (x) => (x.k === 'var' ? x.name : x.k === 'not' ? '!' : x.k === 'lp' ? '(' : x.k === 'rp' ? ')' : SYM[x.k]);
 const ghost = (tok) => (tok.k === 'not' ? <span className="nt-ov">A</span> : text(tok));
 
-export default function ExprEditor({ letters, baseLabels, onBuild, sheet }) {
-  const { t } = useI18n();
+export function useExpressionDraft() {
   const [tokens, setTokens] = useState([]);
   const [caret, setCaret] = useState(0);
   const [mode, setMode] = useState('replace');
+  return { tokens, setTokens, caret, setCaret, mode, setMode };
+}
+
+export default function ExprEditor({ letters, baseLabels, onBuild, sheet, draft }) {
+  const { t } = useI18n();
+  const { tokens, setTokens, caret, setCaret, mode, setMode } = draft;
   const [drag, setDrag] = useState(null); // { tile, x, y, drop }
   const field = useRef(null);
   const st = useRef(null);
@@ -54,7 +59,7 @@ export default function ExprEditor({ letters, baseLabels, onBuild, sheet }) {
 
   const errText = () => {
     const { code, at, name } = err;
-    if (code === 'unclosed' || code === 'unopened' || code === 'badNot' || code === 'tooMany') return t(`nt.err.${code}`);
+    if (code === 'unclosed' || code === 'unopened' || code === 'badNot' || code === 'tooMany' || code === 'tooComplex') return t(`nt.err.${code}`);
     const first = at === 0 && BIN[tokens[0]?.k];
     return first ? t('nt.err.start') : t('nt.err.after', { op: tokens[at]?.k === 'not' ? t('nt.op.not') : name });
   };
@@ -132,6 +137,7 @@ export default function ExprEditor({ letters, baseLabels, onBuild, sheet }) {
   const bad = err && err.at != null && err.code !== 'tooMany' ? err.at : -1;
   const trail = tokens.length && (BIN[tokens[tokens.length - 1].k] || tokens[tokens.length - 1].k === 'not');
   const drop = drag ? drag.drop : null;
+  const plainCaret = drop ?? caret;
   const marks = (i) => (drop === i ? <span key={`d${i}`} className="nt-dcaret" /> : !drag && caret === i ? <span key={`c${i}`} className="nt-caret" /> : null);
   const seq = (from, to) => {
     const out = [];
@@ -163,21 +169,21 @@ export default function ExprEditor({ letters, baseLabels, onBuild, sheet }) {
       <div role="group" aria-label={t('nt.where')} className="nt-seg">
         {['replace', 'add'].map((m) => <button key={m} type="button" aria-pressed={mode === m} onClick={() => setMode(m)}>{t(`nt.${m}`)}</button>)}
       </div>
-      <button type="button" disabled={!res?.ok} onClick={() => { onBuild(res.expr, mode); setTokens([]); setCaret(0); }} className="inline-flex h-9 pointer-coarse:h-11 w-full items-center justify-center gap-1.5 rounded-md border border-transparent bg-btn px-3.5 font-[550] text-onbtn hover:opacity-90 disabled:opacity-40 disabled:hover:opacity-40">
+      <button type="button" disabled={!res?.ok} onClick={() => { if (onBuild(res.expr, mode) !== false) { setTokens([]); setCaret(0); } }} className="inline-flex h-9 pointer-coarse:h-11 w-full items-center justify-center gap-1.5 rounded-md border border-transparent bg-btn px-3.5 font-[550] text-onbtn hover:opacity-90 disabled:opacity-40 disabled:hover:opacity-40">
         <Icon name="format" /><span>{t('nt.buildBtn')}</span>
       </button>
     </div>
   );
 
   return (
-    <div className="flex flex-col gap-3">
+    <div data-expression-editor className="flex flex-col gap-3">
       <div
         ref={field} role="textbox" tabIndex={0} aria-label={t('nt.field')} aria-invalid={!!err} aria-multiline="false"
         className={`nt-field${err ? ' err' : ''}`}
         onKeyDown={onKeyDown} onPaste={onPaste} onPointerDown={pointField}
       >
         <div className="nt-typed">
-          {tokens.length || drag ? <>{seq(0, tokens.length)}{trail ? <span className="nt-miss" /> : null}{marks(tokens.length)}</> : <><span className="nt-ph">{t('nt.ph')}</span>{marks(0)}</>}
+          {err?.code === 'tooComplex' ? <>{tokens.slice(0, plainCaret).map(text).join('')}{marks(plainCaret)}{tokens.slice(plainCaret).map(text).join('')}</> : tokens.length || drag ? <>{seq(0, tokens.length)}{trail ? <span className="nt-miss" /> : null}{marks(tokens.length)}</> : <><span className="nt-ph">{t('nt.ph')}</span>{marks(0)}</>}
         </div>
       </div>
       <p role="status" className={`nt-msg ${msg.c}`}>

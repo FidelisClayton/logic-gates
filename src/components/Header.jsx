@@ -18,7 +18,12 @@ function Overflow({ saved, dark, canClear, actions, onCopy }) {
   const { t, locale, setLocale } = useI18n();
   const [view, setView] = useState('main');
   const picked = useRef(false); // a choice that opens something owns focus, so the menu must not return it to the trigger
-  const wires = load('wires') === 'curved' ? 'curved' : 'square';
+  const [wires, setWires] = useState(() => (load('wires') === 'curved' ? 'curved' : 'square'));
+  useEffect(() => {
+    const on = (e) => setWires(e.detail === 'curved' ? 'curved' : 'square');
+    addEventListener('lg:wires', on);
+    return () => removeEventListener('lg:wires', on);
+  }, []);
   const item = 'data-[disabled]:pointer-events-none data-[disabled]:opacity-35';
   const mark = <span className="ml-auto text-sig"><Icon name="check" /></span>;
   return (
@@ -54,9 +59,8 @@ function Overflow({ saved, dark, canClear, actions, onCopy }) {
   );
 }
 
-export default function Header({ tier, editor, sidebar, onSidebar, canUndo, canRedo, canClear, copySignal, dark, shareUrl, actions }) {
+export default function Header({ tier, editor, saved, sidebar, onSidebar, canUndo, canRedo, canClear, copySignal, dark, shareUrl, actions }) {
   const { t, locale, setLocale } = useI18n();
-  const saved = editor.persisted;
   const [copyOpen, setCopyOpen] = useState(false);
   useEffect(() => { if (copySignal) setCopyOpen(true); }, [copySignal]);
   const lbl = locale === 'de' || locale === 'fr' ? 'hidden' : 'max-[1199px]:hidden'; // icon-only below 1200px and in German and French

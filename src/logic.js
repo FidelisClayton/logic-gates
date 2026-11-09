@@ -1,19 +1,18 @@
 // Pure logic for the gate emulator. No DOM.
-const f = (fn) => fn;
 export const GATES = {
   INPUT: { label: 'Input', inputs: 0, key: 'I' },
   OUTPUT: { label: 'Output', inputs: 1, key: 'Q' },
-  NOT: { label: 'NOT', inputs: 1, key: 'N', fn: f((b) => +!b[0]) },
-  AND: { label: 'AND', inputs: 2, key: 'A', fn: f((b) => b[0] & b[1]) },
-  AND3: { label: 'AND (3 inputs)', inputs: 3, key: '3', fn: f((b) => b[0] & b[1] & b[2]) },
-  NAND: { label: 'NAND', inputs: 2, key: 'D', fn: f((b) => +!(b[0] & b[1])) },
-  OR: { label: 'OR', inputs: 2, key: 'O', fn: f((b) => b[0] | b[1]) },
-  NOR: { label: 'NOR', inputs: 2, key: 'R', fn: f((b) => +!(b[0] | b[1])) },
-  XOR: { label: 'XOR', inputs: 2, key: 'X', fn: f((b) => b[0] ^ b[1]) },
-  XNOR: { label: 'XNOR', inputs: 2, key: 'E', fn: f((b) => +!(b[0] ^ b[1])) },
+  NOT: { label: 'NOT', inputs: 1, key: 'N', fn: (b) => +!b[0] },
+  AND: { label: 'AND', inputs: 2, key: 'A', fn: (b) => b[0] & b[1] },
+  AND3: { label: 'AND (3 inputs)', inputs: 3, key: '3', fn: (b) => b[0] & b[1] & b[2] },
+  NAND: { label: 'NAND', inputs: 2, key: 'D', fn: (b) => +!(b[0] & b[1]) },
+  OR: { label: 'OR', inputs: 2, key: 'O', fn: (b) => b[0] | b[1] },
+  NOR: { label: 'NOR', inputs: 2, key: 'R', fn: (b) => +!(b[0] | b[1]) },
+  XOR: { label: 'XOR', inputs: 2, key: 'X', fn: (b) => b[0] ^ b[1] },
+  XNOR: { label: 'XNOR', inputs: 2, key: 'E', fn: (b) => +!(b[0] ^ b[1]) },
 };
 
-const MAX_NODES = 500;
+export const MAX_NODES = 500;
 const MAX_INPUTS = 6;
 const isType = (t) => typeof t === 'string' && Object.hasOwn(GATES, t);
 
@@ -21,7 +20,7 @@ export function evaluate(circuit) {
   const byId = new Map(circuit.nodes.map((n) => [n.id, n]));
   const feeding = new Map(); // "to:port" -> wire
   for (const w of circuit.wires) feeding.set(`${w.to}:${w.port}`, w);
-  const node = {};
+  const node = Object.create(null);
   const visiting = new Set();
   const val = (id) => {
     if (id in node) return node[id];
@@ -42,7 +41,7 @@ export function evaluate(circuit) {
     return (node[id] = v);
   };
   circuit.nodes.forEach((n) => val(n.id));
-  const wire = {};
+  const wire = Object.create(null);
   for (const w of circuit.wires) wire[w.id] = node[w.from] ?? 0;
   return { node, wire };
 }
@@ -122,7 +121,7 @@ const num = (n) => typeof n === 'number' && Number.isFinite(n) && Math.abs(n) < 
 
 export function decode(str) {
   try {
-    if (typeof str !== 'string' || !/^[A-Za-z0-9_-]+$/.test(str) || str.length > 200000) return null;
+    if (typeof str !== 'string' || str.length > 1_000_000 || !/^[A-Za-z0-9_-]+$/.test(str)) return null;
     const bin = atob(str.replaceAll('-', '+').replaceAll('_', '/'));
     const j = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Uint8Array.from(bin, (c) => c.charCodeAt(0))));
     if (!isObj(j) || typeof j.name !== 'string' || j.name.length > 100) return null;
@@ -144,17 +143,29 @@ export function decode(str) {
     const wireIds = new Set();
     const ports = new Set();
     const circuit = { name: j.name, nodes, wires };
+    const downstream = new Map(nodes.map((n) => [n.id, []]));
+    const indegree = new Map(nodes.map((n) => [n.id, 0]));
     for (const w of j.wires) {
       if (!isObj(w) || typeof w.id !== 'string' || !ID.test(w.id) || wireIds.has(w.id)) return null;
       const src = byId.get(w.from);
       const dst = byId.get(w.to);
       if (!src || !dst || src.type === 'OUTPUT') return null;
       if (!Number.isInteger(w.port) || w.port < 0 || w.port >= GATES[dst.type].inputs) return null;
-      if (ports.has(`${w.to}:${w.port}`) || wouldCreateCycle(circuit, w.from, w.to)) return null;
+      if (ports.has(`${w.to}:${w.port}`)) return null;
       wireIds.add(w.id);
       ports.add(`${w.to}:${w.port}`);
       wires.push({ id: w.id, from: w.from, to: w.to, port: w.port });
+      downstream.get(w.from).push(w.to);
+      indegree.set(w.to, indegree.get(w.to) + 1);
     }
+    const ready = nodes.filter((n) => indegree.get(n.id) === 0).map((n) => n.id);
+    for (let i = 0; i < ready.length; i++) {
+      for (const to of downstream.get(ready[i])) {
+        indegree.set(to, indegree.get(to) - 1);
+        if (indegree.get(to) === 0) ready.push(to);
+      }
+    }
+    if (ready.length !== nodes.length) return null;
     return circuit;
   } catch {
     return null;

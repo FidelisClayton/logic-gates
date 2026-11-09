@@ -151,3 +151,39 @@ test('replaceType does not mutate its input', () => {
   replaceType(c, 'g', 'NOT');
   assert.equal(JSON.stringify(c), before);
 });
+
+test('prototype-named node and wire IDs round-trip and evaluate numerically', () => {
+  const ids = ['constructor', 'toString', '__proto__'];
+  const c = {
+    name: 'Safe IDs',
+    nodes: ids.map((id, i) => ({ id, type: i === 0 ? 'INPUT' : 'OUTPUT', x: i * 100, y: 0, label: i === 0 ? 'A' : 'OUT', ...(i === 0 && { value: 1 }) })),
+    wires: ids.map((id, i) => ({ id, from: ids[0], to: ids[i % 2 + 1], port: 0 })).slice(0, 2),
+  };
+  // All three names must also work as wire IDs, independently of node IDs.
+  for (const id of ids) {
+    c.wires[0].id = id;
+    c.wires[1].id = 'other';
+    const decoded = decode(encode(c));
+    assert.deepEqual(decoded, c);
+    const result = evaluate(decoded);
+    for (const nodeId of ids) assert.equal(result.node[nodeId], 1);
+    assert.equal(result.wire[id], 1);
+    assert.equal(result.wire.other, 1);
+  }
+});
+
+test('decode rejects otherwise-valid JSON above the encoded size limit', () => {
+  const circuit = exampleCircuit();
+  assert.deepEqual(decode(encode({ ...circuit, padding: 'x' })), circuit);
+  const encoded = encode({ ...circuit, padding: 'x'.repeat(750000) });
+  assert.ok(encoded.length > 1_000_000);
+  assert.equal(decode(encoded), null);
+});
+
+test('decode rejects self, multi-node and disconnected cycles in either wire order', () => {
+  const nodes = ['a', 'b', 'c', 'd'].map((id) => ({ id, type: 'NOT', x: 0, y: 0 }));
+  for (const pairs of [[['a', 'a']], [['a', 'b'], ['b', 'a']], [['a', 'b'], ['c', 'd'], ['d', 'c']]]) {
+    const wires = pairs.map(([from, to], i) => ({ id: `w${i}`, from, to, port: 0 }));
+    for (const ordered of [wires, [...wires].reverse()]) assert.equal(decode(encode({ name: 'Cycle', nodes, wires: ordered })), null);
+  }
+});

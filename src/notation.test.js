@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { exampleCircuit, encode, decode, truthTable, evaluate } from './logic.js';
 import { bounds } from './geometry.js';
-import { circuitExprs, exprText, cone, tokensFromText, parseTokens, exprToCircuit } from './notation.js';
+import { circuitExprs, exprText, exprTooLarge, cone, tokensFromText, parseTokens, exprToCircuit } from './notation.js';
 
 const parse = (s) => { const r = parseTokens(tokensFromText(s)); assert.ok(r.ok, s); return r.expr; };
 const err = (s) => { const r = parseTokens(tokensFromText(s)); assert.equal(r.ok, false, s); return r.error; };
@@ -183,6 +183,30 @@ test('exprToCircuit add reuses inputs, keeps existing nodes, sits below', () => 
   assert.deepEqual(run({ A: 0, B: 0, C: 0, D: 1, E: 1 }), [0, 0]);
 });
 
+test('exprToCircuit add preserves round trips at coordinate limits', () => {
+  for (const y of [-999999.5, 999999.5]) {
+    const base = {
+      name: 'Edge',
+      nodes: [
+        { id: 'A', type: 'INPUT', label: 'A', value: 0, x: 0, y },
+        { id: 'oldOut', type: 'OUTPUT', label: 'OUT', x: 200, y },
+      ],
+      wires: [{ id: 'oldWire', from: 'A', to: 'oldOut', port: 0 }],
+    };
+    const before = structuredClone(base);
+    roundTrips(base);
+    const c = exprToCircuit(parse('A'), base, { mode: 'add' });
+    assert.deepEqual(base, before);
+    assert.deepEqual(c.nodes.slice(0, base.nodes.length), before.nodes);
+    assert.deepEqual(c.wires.slice(0, base.wires.length), before.wires);
+    assert.equal(c.nodes.length, base.nodes.length + 1);
+    const output = c.nodes.at(-1);
+    assert.equal(output.type, 'OUTPUT');
+    assert.ok(c.wires.some((w) => w.from === 'A' && w.to === output.id && w.port === 0));
+    roundTrips(c);
+  }
+});
+
 test('add onto an empty circuit works', () => {
   const c = exprToCircuit(parse('A+B'), empty, { mode: 'add' });
   roundTrips(c);
@@ -203,4 +227,84 @@ test('circuit -> expr -> circuit keeps the truth table', () => {
 
 test('exprToCircuit refuses holes', () => {
   assert.throws(() => exprToCircuit({ t: 'hole' }, empty, { mode: 'replace' }));
+});
+
+test('notation accepts prototype-named node IDs', () => {
+  for (const id of ['constructor', 'toString', '__proto__']) {
+    const c = one('NOT', 1);
+    c.nodes.find((n) => n.id === 'g').id = id;
+    c.wires = c.wires.map((w) => ({ ...w, from: w.from === 'g' ? id : w.from, to: w.to === 'g' ? id : w.to }));
+    roundTrips(c);
+    const r = circuitExprs(c);
+    assert.equal(exprText(r.nodes[id]), "A'");
+    assert.equal(exprText(r.outputs[0].expr), "A'");
+    assert.equal(r.outputs[0].complete, true);
+  }
+});
+
+test('reconvergent circuits retain complete expressions with bounded display text', () => {
+  const c = { name: 'Shared branches', nodes: [{ id: 'a', type: 'INPUT', label: 'A', value: 1, x: 0, y: 0 }], wires: [] };
+  let prev = 'a';
+  for (let i = 0; i < 30; i++) {
+    const id = `g${i}`;
+    c.nodes.push({ id, type: 'AND', x: i * 100, y: 0 });
+    for (let port = 0; port < 2; port++) c.wires.push({ id: `w${i}_${port}`, from: prev, to: id, port });
+    prev = id;
+  }
+  c.nodes.push({ id: 'out', type: 'OUTPUT', label: 'OUT', x: 0, y: 0 });
+  c.wires.push({ id: 'last', from: prev, to: 'out', port: 0 });
+  roundTrips(c);
+  assert.equal(evaluate(c).node.out, 1);
+  c.nodes[0].value = 0;
+  assert.equal(evaluate(c).node.out, 0);
+  const r = circuitExprs(c);
+  assert.equal(r.outputs[0].complete, true);
+  assert.equal(exprText(r.outputs[0].expr), '…');
+  assert.equal(exprText(r.nodes.g2), 'A·A·A·A·A·A·A·A');
+});
+
+test('expression builds allow 500 nodes and reject 501 in replace and add modes', () => {
+  const expr = (terms) => ({ t: 'or', args: Array.from({ length: terms }, () => ({ t: 'var', name: 'A' })) });
+  const c = exprToCircuit(expr(499), empty);
+  assert.equal(c.nodes.length, 500);
+  roundTrips(c);
+  assert.equal(exprToCircuit(expr(500), empty), null);
+  const base = { name: 'Base', nodes: Array.from({ length: 498 }, (_, i) => ({ id: `base${i}`, type: 'INPUT', label: i ? 'B' : 'A', value: 1, x: 0, y: 0 })), wires: [] };
+  const before = structuredClone(base);
+  const added = exprToCircuit(parse('A+A'), base, { mode: 'add' });
+  assert.equal(added.nodes.length, 500);
+  assert.deepEqual(added.nodes.slice(0, base.nodes.length), before.nodes);
+  assert.equal(added.nodes.filter((n) => n.label === 'A').length, 1);
+  roundTrips(added);
+  assert.equal(exprToCircuit(parse('A+A+A'), base, { mode: 'add' }), null);
+  assert.equal(exprToCircuit(parse('C+C'), base, { mode: 'add' }), null);
+  assert.deepEqual(base, before);
+});
+
+test('display guard allows 1000 expanded nodes and rejects 1001', () => {
+  const a = { t: 'var', name: 'A' };
+  const e = { t: 'or', args: Array(999).fill(a) };
+  assert.equal(exprTooLarge(e), false);
+  assert.equal(exprText(e), Array(999).fill('A').join(' + '));
+  e.args.push(a);
+  assert.equal(exprTooLarge(e), true);
+  assert.equal(exprText(e), '…');
+});
+
+test('oversized pasted expressions return a recoverable complexity error without losing tokens', () => {
+  for (const input of ['('.repeat(4000) + 'A' + ')'.repeat(4000), '!'.repeat(12000) + 'A']) {
+    const tokens = tokensFromText(input);
+    const before = structuredClone(tokens);
+    assert.deepEqual(parseTokens(tokens), { ok: false, error: { code: 'tooComplex' } });
+    assert.deepEqual(tokens, before);
+    tokens.splice(0, tokens.length, ...tokensFromText('A+B'));
+    assert.equal(parseTokens(tokens).ok, true);
+  }
+});
+
+test('expressions at the token budget still parse', () => {
+  assert.equal(parseTokens(tokensFromText('A'.repeat(1000))).ok, true);
+  assert.equal(parseTokens(tokensFromText('!'.repeat(999) + 'A')).ok, true);
+  assert.equal(exprText(parse('('.repeat(200) + 'A+B' + ')'.repeat(200))), 'A + B');
+  assert.equal(err('A'.repeat(1001)).code, 'tooComplex');
 });

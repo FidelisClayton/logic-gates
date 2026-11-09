@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { GATES } from '../logic.js';
 import { GateIcon } from '../glyphs.jsx';
 import { useI18n } from '../I18n.jsx';
@@ -11,6 +11,8 @@ export default function CommandPalette({ gate, onReplace, onClose, onAdd, onForm
   const { t } = useI18n();
   const [q, setQ] = useState('');
   const [act, setAct] = useState(0);
+  const dialog = useRef(null);
+  const opener = useRef(document.activeElement);
   const list = useRef(null);
   const v = q.trim().toLowerCase();
   const hit = (name, extra = '') => !v || name.toLowerCase().includes(v) || extra.toLowerCase().includes(v);
@@ -31,6 +33,15 @@ export default function CommandPalette({ gate, onReplace, onClose, onAdd, onForm
   const items = [...parts, ...swaps, ...actions];
   const idx = Math.min(act, Math.max(items.length - 1, 0));
 
+  useLayoutEffect(() => {
+    const modal = dialog.current;
+    modal.showModal();
+    return () => {
+      modal.close();
+      if (opener.current?.isConnected) opener.current.focus();
+    };
+  }, []);
+
   // Keep the arrow-key row in view inside the scrolling list.
   useEffect(() => { list.current?.querySelector('.cmd-row.act')?.scrollIntoView({ block: 'nearest' }); }, [act, q]);
 
@@ -38,12 +49,11 @@ export default function CommandPalette({ gate, onReplace, onClose, onAdd, onForm
     if (e.key === 'ArrowDown') { e.preventDefault(); setAct((idx + 1) % items.length); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setAct((idx - 1 + items.length) % items.length); }
     else if (e.key === 'Enter' && items[idx]) { e.preventDefault(); items[idx].run(); }
-    else if (e.key === 'Escape') onClose();
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-scrim pt-[min(140px,10dvh)]" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="w-[560px] max-w-[calc(100vw-32px)] overflow-hidden rounded-[14px] bg-raised shadow-pop" role="dialog" aria-modal="true" aria-label={t('cmd.label')}>
+    <dialog ref={dialog} className="fixed inset-0 z-50 m-0 h-dvh max-h-none w-full max-w-none items-start justify-center border-0 bg-scrim p-0 [padding-block-start:min(140px,10dvh)] text-ink open:flex backdrop:bg-transparent" aria-label={t('cmd.label')} onCancel={(e) => { e.preventDefault(); onClose(); }} onPointerDown={(e) => { if (e.target === e.currentTarget) { e.preventDefault(); onClose(); } }}>
+      <div className="w-[560px] max-w-[calc(100vw-32px)] overflow-hidden rounded-[14px] bg-raised shadow-pop">
         <div className="flex h-[52px] items-center gap-2.5 border-b border-line px-4 text-muted">
           <Icon name="search" />
           <input
@@ -76,6 +86,6 @@ export default function CommandPalette({ gate, onReplace, onClose, onAdd, onForm
           <span className="ml-auto flex items-center gap-1.5"><kbd className={kbd}>esc</kbd>{t('cmd.close')}</span>
         </div>
       </div>
-    </div>
+    </dialog>
   );
 }

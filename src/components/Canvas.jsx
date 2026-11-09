@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { evaluate, wouldCreateCycle } from '../logic.js';
+import { evaluate, GATES, wouldCreateCycle } from '../logic.js';
 import { bodyPath, bubbleX } from '../glyphs.jsx';
-import { bounds, fitView, hasOut, inPorts, nearestInPort, outPort, routeAll, snap, zoomAt } from '../geometry.js';
+import { bounds, clampCoord, fitView, hasOut, inPorts, nearestInPort, outPort, routeAll, snap, zoomAt } from '../geometry.js';
 import { load, save } from '../storage.js';
 import { WireIcon } from '../wireIcons.jsx';
 import { newId } from '../ids.js';
@@ -110,7 +110,7 @@ export default function Canvas({ circuit, sel, dispatch, notify, viewRef, fitKey
   const prevEval = useRef(null);
   const cancelWave = useRef(null);
   const routeRef = useRef(null);
-  const over = useRef({ node: {}, wire: {} }); // OLD values still on display while the wave is on its way
+  const over = useRef({ node: Object.create(null), wire: Object.create(null) }); // OLD values still on display while the wave is on its way
   const timers = useRef([]);
   const [, bump] = useState(0);
   const [tip, setTip] = useState(null); // gate popover: { id, via: 'hover' | 'focus' | 'tap' }
@@ -124,6 +124,19 @@ export default function Canvas({ circuit, sel, dispatch, notify, viewRef, fitKey
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  function cancel() {
+    session.current = null;
+    pinch.current = null;
+    ptrs.current.clear();
+    setArmed(null);
+    setPreview(null);
+    setDragId(null);
+    setGuide(null);
+    setMoving(false);
+    setFlash(null);
+  }
+  useLayoutEffect(() => { cancel(); mouse.current = null; setTip(null); }, [fitKey]);
 
   // Centre the circuit when a circuit loads or the canvas resizes.
   useLayoutEffect(() => {
@@ -171,6 +184,7 @@ export default function Canvas({ circuit, sel, dispatch, notify, viewRef, fitKey
     return { x: (cx - r.left - pan.x) / k, y: (cy - r.top - pan.y) / k, inside: cx >= r.left && cx <= r.right && cy >= r.top && cy <= r.bottom };
   };
   viewRef.current = {
+    cancel,
     center: () => ({ x: snap((size.w / 2 - pan.x) / k), y: snap((size.h / 2 - pan.y) / k) }),
     zoom: k,
     fit: () => setPan(fitView(bounds(circuit), size.w, size.h)),
@@ -181,7 +195,7 @@ export default function Canvas({ circuit, sel, dispatch, notify, viewRef, fitKey
   };
 
   // Dragging re-routes only the dragged node's wires (full re-route of 40 wires costs ~10ms); everything re-routes on drop.
-  const routes = routeAll(circuit, wstyle, dragId ? { frozen: routeRef.current, touch: dragId } : {});
+  const routes = useMemo(() => routeAll(circuit, wstyle, dragId ? { frozen: routeRef.current, touch: dragId } : {}), [circuit, wstyle, dragId]);
   routeRef.current = routes;
   const ev = evaluate(circuit);
   const nv = { ...ev.node, ...over.current.node };
@@ -203,7 +217,7 @@ export default function Canvas({ circuit, sel, dispatch, notify, viewRef, fitKey
     timers.current.forEach(clearTimeout);
     timers.current = [];
     const had = Object.keys(over.current.node).length + Object.keys(over.current.wire).length;
-    over.current = { node: {}, wire: {} };
+    over.current = { node: Object.create(null), wire: Object.create(null) };
     const steps = prev && prev.sig === sig && !matchMedia('(prefers-reduced-motion: reduce)').matches
       ? waveSteps(circuit, { node: { ...prev.node, ...(prev.over?.node) }, wire: { ...prev.wire, ...(prev.over?.wire) } }, ev, [], (id) => svgRef.current.querySelector(`[data-pw="${CSS.escape(id)}"]`).getTotalLength())
       : { wires: [], nodes: [] };
@@ -230,6 +244,9 @@ export default function Canvas({ circuit, sel, dispatch, notify, viewRef, fitKey
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
 
   function connect(from, to, port) {
+    const source = byId.get(from), target = byId.get(to);
+    if (!source || !target || !Object.hasOwn(GATES, source.type) || !Object.hasOwn(GATES, target.type)
+      || !hasOut(source) || !Number.isInteger(port) || port < 0 || port >= GATES[target.type].inputs) return;
     const rest = circuit.wires.filter((w) => !(w.to === to && w.port === port));
     if (wouldCreateCycle({ ...circuit, wires: rest }, from, to)) {
       setFlash({ node: to, port, k: Date.now() });
@@ -316,6 +333,8 @@ export default function Canvas({ circuit, sel, dispatch, notify, viewRef, fitKey
           g = { y: at.theirs.y, x0: Math.min(at.mine.x, at.theirs.x) - 40, x1: Math.max(at.mine.x, at.theirs.x) + 40 };
         }
       }
+      x = clampCoord(x);
+      y = clampCoord(y);
       setGuide(g);
       dispatch({ type: 'set', fn: (c) => ({ ...c, nodes: c.nodes.map((n) => (n.id === s.id ? { ...n, x, y } : n)) }) });
     } else if (s.kind === 'out') {
@@ -353,11 +372,37 @@ export default function Canvas({ circuit, sel, dispatch, notify, viewRef, fitKey
     else if (!s.moved && s.kind === 'empty') dispatch({ type: 'select', sel: null });
   }
 
-  // Keyboard on a focused node: Space or Enter flips a switch and selects any other part.
+  // Keyboard edits use the same connection validation and history as pointer edits.
   const nodeKey = (e, n) => {
     if (e.key === 'Escape') setTip(null);
+    if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+    if (e.key.toLowerCase() === 'w' && hasOut(n)) {
+      e.preventDefault();
+      e.stopPropagation();
+      setArmed(armed === n.id ? null : n.id);
+      return;
+    }
+    if (armed && /^[123]$/.test(e.key)) {
+      e.preventDefault();
+      e.stopPropagation();
+      const port = Number(e.key) - 1;
+      if (port < GATES[n.type].inputs) {
+        connect(armed, n.id, port);
+        setArmed(null);
+      }
+      return;
+    }
+    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+      e.preventDefault();
+      e.stopPropagation();
+      const dx = e.key === 'ArrowLeft' ? -24 : e.key === 'ArrowRight' ? 24 : 0;
+      const dy = e.key === 'ArrowUp' ? -24 : e.key === 'ArrowDown' ? 24 : 0;
+      dispatch({ type: 'edit', fn: (c) => ({ ...c, nodes: c.nodes.map((node) => node.id === n.id ? { ...node, x: clampCoord(node.x + dx), y: clampCoord(node.y + dy) } : node) }), sel: { kind: 'node', id: n.id } });
+      return;
+    }
     if (e.key !== ' ' && e.key !== 'Enter') return;
     e.preventDefault();
+    e.stopPropagation();
     if (n.type === 'INPUT') dispatch({ type: 'toggle', id: n.id });
     else dispatch({ type: 'select', sel: { kind: 'node', id: n.id } });
   };
@@ -404,6 +449,7 @@ export default function Canvas({ circuit, sel, dispatch, notify, viewRef, fitKey
       onPointerMove={(e) => { mouse.current = e.pointerType === 'mouse' ? { x: e.clientX, y: e.clientY } : null; }}
       onPointerLeave={() => { mouse.current = null; }}
     >
+      <span id="node-keys" className="sr-only">{t('aria.nodeKeys')}</span>
       <Grid host={wrap} view={pan} size={size} />
       <svg
         ref={svgRef}
@@ -431,9 +477,25 @@ export default function Canvas({ circuit, sel, dispatch, notify, viewRef, fitKey
             );
           })}
           <g className="fx" pointerEvents="none" />
-          {circuit.wires.map((w) => <path key={`t${w.id}`} className="whit" data-wire={w.id} aria-label={t('aria.wire')} d={routes.get(w.id).d} />)}
+          {circuit.wires.map((w) => {
+            const name = (id) => {
+              const n = byId.get(id);
+              return n.type === 'INPUT' || n.type === 'OUTPUT' ? t(`aria.${n.type.toLowerCase()}`, { label: n.label ?? '' }) : n.label || partName(t, n.type);
+            };
+            const select = () => dispatch({ type: 'select', sel: { kind: 'wire', id: w.id } });
+            return <path key={`t${w.id}`} className="whit" data-wire={w.id} tabIndex={0} role="button" aria-pressed={sel?.kind === 'wire' && sel.id === w.id} aria-label={`${t('aria.wire')}: ${name(w.from)} → ${name(w.to)} (${w.port + 1})`} d={routes.get(w.id).d}
+              onFocus={(e) => { if (e.currentTarget.matches(':focus-visible')) select(); }}
+              onKeyDown={(e) => {
+                if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+                if (e.key === 'Backspace') e.preventDefault();
+                if (e.key !== ' ' && e.key !== 'Enter') return;
+                e.preventDefault();
+                e.stopPropagation();
+                select();
+              }} />;
+          })}
 
-          {circuit.nodes.map((n) => <NodeView key={n.id} n={n} dim={dimNode(n.id)} describedBy={open && tip.id === n.id ? 'gate-pop' : undefined} onTip={setTip} v={nv[n.id]} selected={sel?.kind === 'node' && sel.id === n.id} dragging={dragId === n.id} portVal={portVal} t={t} onKey={nodeKey} />)}
+          {circuit.nodes.map((n) => <NodeView key={n.id} n={n} dim={dimNode(n.id)} describedBy={open && tip.id === n.id ? 'node-keys gate-pop' : 'node-keys'} onFocus={() => dispatch({ type: 'select', sel: { kind: 'node', id: n.id } })} onTip={setTip} v={nv[n.id]} selected={sel?.kind === 'node' && sel.id === n.id} dragging={dragId === n.id} portVal={portVal} t={t} onKey={nodeKey} />)}
 
 
           {circuit.wires.map((w) => {
@@ -548,15 +610,18 @@ function GatePop({ n, ex, circuit, nv, t }) {
   );
 }
 
-function NodeView({ n, v, selected, dragging, portVal, t, onKey, dim, describedBy, onTip }) {
+function NodeView({ n, v, selected, dragging, portVal, t, onKey, dim, describedBy, onTip, onFocus }) {
   const tr = `translate(${n.x} ${n.y})`;
   const cls = `nodeg${dragging ? ' dragging' : ''}${dim ? ' dim' : ''}`;
-  const kb = { tabIndex: 0, onKeyDown: (e) => onKey(e, n), 'aria-describedby': describedBy };
+  const kb = { tabIndex: 0, onKeyDown: (e) => onKey(e, n), 'aria-describedby': describedBy, onFocus: (e) => {
+    if (!e.currentTarget.matches(':focus-visible')) return;
+    onFocus();
+    if (n.type !== 'INPUT') onTip({ id: n.id, via: 'focus' });
+  } };
   if (n.type !== 'INPUT') {
     // Mouse hover and keyboard focus open the popover; touch taps are handled in the canvas pointer-up.
     kb.onPointerEnter = (e) => e.pointerType === 'mouse' && onTip({ id: n.id, via: 'hover' });
     kb.onPointerLeave = (e) => e.pointerType === 'mouse' && onTip((c) => (c?.via === 'hover' && c.id === n.id ? null : c));
-    kb.onFocus = (e) => e.target.matches(':focus-visible') && onTip({ id: n.id, via: 'focus' });
     kb.onBlur = () => onTip((c) => (c?.via === 'focus' && c.id === n.id ? null : c));
   }
   if (n.type === 'INPUT') {

@@ -1,18 +1,20 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { truthTable } from '../logic.js';
 import { useI18n } from '../I18n.jsx';
 import { Icon } from '../icons.jsx';
 import { btn, hit } from '../ui.js';
 import BottomSheet from './BottomSheet.jsx';
 import NotationPanel, { NotationPeek } from './NotationPanel.jsx';
+import { useExpressionDraft } from './ExprEditor.jsx';
 
 const MIN = 240;
 const STEP = 16;
 
 export default function TruthTable({ circuit, width, onWidth, sheet, phone, hover, onHover, onBuild }) {
   const { t } = useI18n();
+  const draft = useExpressionDraft();
   const [covered, setCovered] = useState(false);
-  const [shown, setShown] = useState({ n: 0, rows: new Set() });
+  const [shown, setShown] = useState({ key: null, rows: new Set() });
   const box = useRef(null);
   const aside = useRef(null);
   const drag = useRef(null);
@@ -39,8 +41,9 @@ export default function TruthTable({ circuit, width, onWidth, sheet, phone, hove
   };
   const hasIn = circuit.nodes.some((n) => n.type === 'INPUT');
   const hasOut = circuit.nodes.some((n) => n.type === 'OUTPUT');
-  const tt = hasIn && hasOut ? truthTable(circuit) : null;
+  const tt = useMemo(() => hasIn && hasOut ? truthTable(circuit) : null, [circuit, hasIn, hasOut]);
   const ok = tt && !tt.tooMany;
+  const tableKey = useMemo(() => ok ? JSON.stringify([tt.inputs, tt.outputs, tt.rows]) : null, [tt, ok]);
 
   // Scroll only the table box (scrollIntoView could also shift the clipped sheet or the page).
   useEffect(() => {
@@ -54,9 +57,9 @@ export default function TruthTable({ circuit, width, onWidth, sheet, phone, hove
   }, [ok && tt.current, ok && tt.rows.length, expanded, tab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const msg = tt?.tooMany ? t('tt.tooMany') : !hasIn && !hasOut ? t('tt.empty.both') : !hasIn ? t('tt.empty.in') : !hasOut ? t('tt.empty.out') : null;
-  const open = shown.n === (ok ? tt.inputs.length : 0) ? shown.rows : new Set();
-  const toggleCover = () => { setCovered((c) => !c); setShown({ n: 0, rows: new Set() }); };
-  const reveal = (r) => setShown({ n: tt.inputs.length, rows: new Set(open).add(r) });
+  const open = shown.key === tableKey ? shown.rows : new Set();
+  const toggleCover = () => { setCovered((c) => !c); setShown({ key: null, rows: new Set() }); };
+  const reveal = (r) => setShown({ key: tableKey, rows: new Set(open).add(r) });
 
   const credit = (
     <>
@@ -117,7 +120,7 @@ export default function TruthTable({ circuit, width, onWidth, sheet, phone, hove
     <>
       <div role="tabpanel" id="panel-tt" aria-labelledby="tab-tt" hidden={note} className="flex min-h-0 flex-1 flex-col gap-2.5">{head}{body}</div>
       <div role="tabpanel" id="panel-nt" aria-labelledby="tab-nt" hidden={!note} className="flex min-h-0 flex-1 flex-col">
-        <NotationPanel circuit={circuit} hover={hover} onHover={onHover} onBuild={onBuild} sheet={sheet} compact={phone} />
+        <NotationPanel circuit={circuit} hover={hover} onHover={onHover} onBuild={onBuild} sheet={sheet} compact={phone} draft={draft} />
       </div>
     </>
   );
@@ -143,7 +146,10 @@ export default function TruthTable({ circuit, width, onWidth, sheet, phone, hove
             <span className="flex min-w-0 items-center gap-1 overflow-hidden">
               {tt.inputs.map((i, k) => <span key={i.id} className={chip(row.in[k])}><span className="text-muted">{i.label}</span><b className={row.in[k] ? '' : 'text-muted'}>{row.in[k]}</b></span>)}
               <span className="text-muted"><Icon name="right" /></span>
-              {tt.outputs.map((o, k) => <span key={o.id} className={chip(row.out[k], true)}><span className={row.out[k] ? '' : 'text-muted'}>{o.label}</span><b>{row.out[k]}</b></span>)}
+              {tt.outputs.map((o, k) => {
+                const v = covered && !open.has(tt.current) ? null : row.out[k];
+                return <span key={o.id} className={chip(v, true)}><span className={v ? '' : 'text-muted'}>{o.label}</span><b>{v ?? '?'}</b></span>;
+              })}
             </span>
           ) : <span className="max-w-full truncate text-xs text-muted">{msg}</span>}
         </span>

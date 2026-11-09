@@ -1,5 +1,7 @@
+import { useRef } from 'react';
 import { cn } from '@/lib/utils';
-import { needsParens } from '../notation.js';
+import { exprTooLarge, needsParens } from '../notation.js';
+import { useI18n } from '../I18n.jsx';
 
 const SIZE = { lg: 'text-[22px]', md: 'text-[15px]', sm: 'text-[12.5px]' };
 const OP = { and: ' · ', or: ' + ', xor: ' ⊕ ' };
@@ -26,8 +28,8 @@ function Node({ e, parent, hl, onHover }) {
     <span
       data-src={e.src}
       tabIndex={onHover ? 0 : undefined}
-      onPointerOver={onHover && ((ev) => { ev.stopPropagation(); onHover(e.src); })}
-      onFocus={onHover && ((ev) => { ev.stopPropagation(); onHover(e.src); })}
+      onPointerOver={onHover && ((ev) => { ev.stopPropagation(); if (ev.pointerType === 'mouse') onHover(e.src); })}
+      onFocus={onHover && ((ev) => { ev.stopPropagation(); if (ev.currentTarget.matches(':focus-visible')) onHover(e.src); })}
       className={cn('rounded-[3px] outline-none focus-visible:ring-2 focus-visible:ring-sig', hl === e.src && 'bg-sigsoft')}
     >
       {body}
@@ -36,13 +38,23 @@ function Node({ e, parent, hl, onHover }) {
 }
 
 export default function Expr({ expr, size = 'md', hl = null, onHover }) {
+  const { t } = useI18n();
+  const pointerType = useRef(null);
   return (
     <span
       className={cn('inline-block pt-1 font-medium tabular-nums', SIZE[size])}
-      onPointerLeave={onHover && (() => onHover(null))}
+      onPointerDown={onHover && ((ev) => { pointerType.current = ev.pointerType; })}
+      onClick={onHover && ((ev) => {
+        ev.stopPropagation();
+        const type = pointerType.current;
+        pointerType.current = null;
+        const src = ev.target.closest('[data-src]')?.dataset.src;
+        if (src && ev.detail !== 0 && ['touch', 'pen'].includes(type)) onHover(hl === src ? null : src);
+      })}
+      onPointerLeave={onHover && ((ev) => { if (ev.pointerType === 'mouse') onHover(null); })}
       onBlur={onHover && (() => onHover(null))}
     >
-      <Node e={expr} hl={hl} onHover={onHover} />
+      {exprTooLarge(expr) ? t('nt.tooLarge') : <Node e={expr} hl={hl} onHover={onHover} />}
     </span>
   );
 }

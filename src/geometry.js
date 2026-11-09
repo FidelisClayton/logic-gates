@@ -13,6 +13,9 @@ export function inPorts(n) {
 export const GRID = 24;
 export const snap = (v) => Math.round(v / GRID) * GRID;
 
+// Keep edits inside the range accepted by decode.
+export const clampCoord = (v) => Math.max(-999999, Math.min(999999, v));
+
 // Visible extent of each node type (INPUT and OUTPUT are narrower than gates).
 const EXT = { INPUT: [36, 40, 18, 18], OUTPUT: [26, 24, 30, 54] };
 
@@ -72,7 +75,7 @@ function heapPop(h) {
 
 // Returns the lattice path A -> stub -> ... -> stub -> B, or null (blocked, or over budget).
 // `boxes` are every node's inflated box; `others` exclude the two endpoint nodes. `used` holds "x,y" points of earlier wires from the same source (cheaper to follow).
-function search(A, B, boxes, others, used, budget = BUDGET) {
+function search(A, B, boxes, others, used, budget) {
   const S = [Math.ceil((A[0] + LEAD) / CELL) * CELL, A[1]];
   const G = [Math.floor((B[0] - LEAD) / CELL) * CELL, B[1]];
   if (boxes.some((b) => hits(S, S, b) || hits(G, G, b)) || others.some((b) => hits(A, S, b) || hits(G, B, b))) return null;
@@ -80,6 +83,8 @@ function search(A, B, boxes, others, used, budget = BUDGET) {
   const nx = Math.ceil((Math.max(S[0], G[0]) + MARGIN) / CELL) - xa + 1;
   const ya = Math.floor((Math.min(A[1], B[1]) - MARGIN) / CELL);
   const yb = Math.ceil((Math.max(A[1], B[1]) + MARGIN) / CELL);
+  // Bound storage before building lattice rows, including up to two extra port rows.
+  if (nx * (yb - ya + 3) > BUDGET) return null;
   const ys = [...new Set([...Array.from({ length: yb - ya + 1 }, (_, k) => (ya + k) * CELL), A[1], B[1]])].sort((p, q) => p - q);
   const ny = ys.length;
   const yi = new Map(ys.map((y, j) => [y, j]));
@@ -95,8 +100,9 @@ function search(A, B, boxes, others, used, budget = BUDGET) {
   const heap = [];
   heapPush(heap, [h(S[0] / CELL - xa, yi.get(S[1])), s0, 0]);
   let end = -1;
-  for (let pops = 0; heap.length; pops++) {
-    if (pops > budget) return null;
+  while (heap.length) {
+    if (budget.remaining <= 0) return null;
+    budget.remaining--;
     const [, s, gs] = heapPop(heap);
     if (gs > g[s]) continue;
     const d = s % 4, cell = (s - d) / 4, i = cell % nx, j = (cell - i) / nx;
@@ -128,7 +134,7 @@ function search(A, B, boxes, others, used, budget = BUDGET) {
 const corners = (g) => g.filter((p, k) => k === 0 || k === g.length - 1 || !((g[k - 1][0] === p[0] && p[0] === g[k + 1][0]) || (g[k - 1][1] === p[1] && p[1] === g[k + 1][1])));
 
 // `nodes` are the obstacles (default: just the two ends). `used` is described at `search`.
-export function wireGeom(from, to, port, style = 'square', nodes = [from, to], used = new Set()) {
+export function wireGeom(from, to, port, style = 'square', nodes = [from, to], used = new Set(), budget = { remaining: BUDGET }) {
   const a = outPort(from);
   const b = inPorts(to)[port];
   if (style === 'curved') {
@@ -142,9 +148,12 @@ export function wireGeom(from, to, port, style = 'square', nodes = [from, to], u
   }
   const A = [a.x, a.y];
   const B = [b.x, b.y];
-  const boxes = nodes.map(nodeBox);
-  const others = nodes.filter((n) => n.id !== from.id && n.id !== to.id).map(nodeBox);
-  const grid = search(A, B, boxes, others, used);
+  let grid = null;
+  if (budget.remaining > 0) {
+    const boxes = nodes.map(nodeBox);
+    const others = nodes.filter((n) => n.id !== from.id && n.id !== to.id).map(nodeBox);
+    grid = search(A, B, boxes, others, used, budget);
+  }
   const finish = (pts, gr, fallback) => {
     const w = square(pts);
     return { ...w, grid: gr, stub: gr[1], fallback, chip: w.at(Math.min(14 / (w.total || 1), 1)) };
@@ -173,6 +182,8 @@ export function routeAll(circuit, style = 'square', opts = {}) {
   const bySrc = new Map();
   for (const w of circuit.wires) if (byId.has(w.from) && byId.has(w.to)) (bySrc.get(w.from) ?? bySrc.set(w.from, []).get(w.from)).push(w);
   const out = new Map();
+  // shortcut: the aggregate budget can use obstacle-crossing fallbacks; use off-thread routing if strict large-circuit avoidance is required.
+  const budget = { remaining: BUDGET };
   for (const ws of bySrc.values()) {
     const used = new Set();
     const keys = [];
@@ -186,7 +197,7 @@ export function routeAll(circuit, style = 'square', opts = {}) {
         const b = inPorts(t)[w.port];
         const key = `${outPort(f).x},${outPort(f).y},${b.x},${b.y}|${bk}|${keys.join('>')}`;
         g = memo.get(key);
-        if (!g) { g = wireGeom(f, t, w.port, 'square', circuit.nodes, used); if (memo.size > 2000) memo.clear(); memo.set(key, g); }
+        if (!g) { g = wireGeom(f, t, w.port, 'square', circuit.nodes, used, budget); if (memo.size > 2000) memo.clear(); memo.set(key, g); }
         keys.push(`${b.x},${b.y}`);
         g.grid.forEach((p) => used.add(p.join()));
       }

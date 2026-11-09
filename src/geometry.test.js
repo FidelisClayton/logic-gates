@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { GRID, snap, wireGeom, outPort, inPorts } from './geometry.js';
+import { GRID, snap, clampCoord, wireGeom, outPort, inPorts } from './geometry.js';
 
 const gate = (id, type, x, y) => ({ id, type, x, y });
 const near = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]) < 0.01;
@@ -47,4 +47,10 @@ test('zoomAt keeps the point under the cursor and clamps to the range', () => {
   assert.equal((150 - z.x) / z.k, (150 - v.x) / v.k);
   assert.equal(zoomAt(v, 9, 0, 0).k, 2);
   assert.equal(zoomAt(v, 0.1, 0, 0).k, 0.4);
+});
+
+test('clampCoord preserves ordinary coordinates and bounds edits for persistence', () => {
+  for (const v of [0, 24, -24, 123.5, -123.5, 999999, -999999]) assert.equal(clampCoord(v), v);
+  for (const v of [999999.5, 1000024, Infinity]) assert.equal(clampCoord(v), 999999);
+  for (const v of [-999999.5, -1000024, -Infinity]) assert.equal(clampCoord(v), -999999);
 });

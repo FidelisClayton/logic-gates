@@ -21,3 +21,21 @@ test('detectLocale and t', () => {
   assert.equal(detectLocale([]), 'en');
   assert.equal(t('de', 'aria.input', { label: 'A' }), 'Eingang A');
 });
+
+for (const [name, copy, confirmation] of [
+  ['Lab $$ 1', 'Lab $$ 1 (copy)', 'Delete "Lab $$ 1"?'],
+  ['A $& B', 'A $& B (copy)', 'Delete "A $& B"?'],
+  ['A $` B', 'A $` B (copy)', 'Delete "A $` B"?'],
+  ["A $' B", "A $' B (copy)", 'Delete "A $\' B"?'],
+]) {
+  test(`circuit names retain literal replacement characters: ${name}`, () => {
+    assert.equal(t('en', 'cs.copyName', { name }), copy);
+    assert.equal(t('en', 'cs.confirm', { name }), confirmation);
+  });
+}
+
+test('interpolation keeps zero values and translation fallback', () => {
+  assert.equal(t('en', 'cs.parts', { n: 0 }), 'Parts: 0');
+  assert.equal(t('unknown', 'cs.copyName', { name: 'Circuit' }), 'Circuit (copy)');
+  assert.equal(t('en', 'missing.key'), 'missing.key');
+});

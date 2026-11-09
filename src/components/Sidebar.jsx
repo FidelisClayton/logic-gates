@@ -1,3 +1,4 @@
+import { circuitName } from '../useEditor.js';
 import { useRef, useState } from 'react';
 import { useI18n } from '../I18n.jsx';
 import { Icon } from '../icons.jsx';
@@ -29,11 +30,11 @@ export default function Sidebar({ items, current, overlay, onSwitch, onNew, onRe
             return (
               <form key={i.id} className={`${shell} gap-1.5 px-1.5`} onSubmit={(e) => {
                 e.preventDefault();
-                const name = e.currentTarget.elements.n.value.trim() || (copy ? t('cs.copyName', { name: i.name }) : i.name);
+                const name = e.currentTarget.elements.n.value.trim() || (copy ? circuitName(t('cs.copyName', { name: i.name })) : i.name);
                 done();
                 (copy ? onCopy : onRename)(i.id, name);
               }}>
-                <input name="n" aria-label={t(copy ? 'cs.copyLabel' : 'cs.renameLabel')} className={input} defaultValue={copy ? t('cs.copyName', { name: i.name }) : i.name} maxLength={100} autoFocus onFocus={(e) => e.target.select()} onKeyDown={(e) => e.key === 'Escape' && done()} />
+                <input name="n" aria-label={t(copy ? 'cs.copyLabel' : 'cs.renameLabel')} className={input} defaultValue={copy ? circuitName(t('cs.copyName', { name: i.name })) : i.name} maxLength={100} autoFocus onFocus={(e) => e.target.select()} onKeyDown={(e) => e.key === 'Escape' && done()} />
                 <button className={`${btnPrimary} ${hit}`} type="submit">{t(copy ? 'cs.copyDo' : 'cs.renameDo')}</button>
               </form>
             );

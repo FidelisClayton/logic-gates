@@ -3,16 +3,16 @@ import { useReducer } from 'react';
 const snap = (c) => JSON.stringify(c);
 const MAX = 100;
 
-// Restoring a snapshot keeps each input's current switch position: toggling is not an undo step.
+// Names and input switch positions are not history steps, so restoring a graph keeps their current values.
 function restore(json, current) {
   const c = JSON.parse(json);
   const vals = new Map(current.nodes.filter((n) => n.type === 'INPUT').map((n) => [n.id, n.value ?? 0]));
-  return { ...c, nodes: c.nodes.map((n) => (vals.has(n.id) ? { ...n, value: vals.get(n.id) } : n)) };
+  return { ...c, name: current.name, nodes: c.nodes.map((n) => (vals.has(n.id) ? { ...n, value: vals.get(n.id) } : n)) };
 }
 
 export const initEditor = (id, circuit, persisted) => ({ id, circuit, persisted, past: [], future: [], sel: null });
 
-function reducer(s, a) {
+export function reducer(s, a) {
   switch (a.type) {
     case 'load':
       return initEditor(a.id, a.circuit, a.persisted);
@@ -46,3 +46,17 @@ function reducer(s, a) {
 }
 
 export const useEditor = (init) => useReducer(reducer, init);
+
+export const circuitName = (name) => name.slice(0, 100);
+
+// All public edits cancel an in-flight format; its own frames use the raw dispatch.
+export function interruptibleDispatch(dispatch, animation, dismissUndo, cancelGesture) {
+  return (action) => {
+    if (['undo', 'redo', 'load', 'edit'].includes(action.type)) cancelGesture?.();
+    if (action.type !== 'select' && action.type !== 'persist') {
+      animation.current++;
+      dismissUndo?.();
+    }
+    dispatch(action);
+  };
+}

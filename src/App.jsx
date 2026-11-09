@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { decode, encode, exampleCircuit, nextLabel, replaceType } from './logic.js';
+import { decode, encode, exampleCircuit, nextLabel, replaceType, MAX_NODES } from './logic.js';
 import { useI18n } from './I18n.jsx';
-import { load, save } from './storage.js';
+import { load, save, readItems, mergeItems, upsertItem } from './storage.js';
 import { newId } from './ids.js';
 import { autoLayout } from './layout.js';
+import { clampCoord } from './geometry.js';
 import { cone, exprToCircuit } from './notation.js';
 import { KEYS } from './parts.js';
-import { initEditor, useEditor } from './useEditor.js';
+import { initEditor, useEditor, circuitName, interruptibleDispatch } from './useEditor.js';
 import Header from './components/Header.jsx';
 import Sidebar from './components/Sidebar.jsx';
 import PartsRail from './components/PartsRail.jsx';
@@ -20,29 +21,23 @@ import { useTier } from './useMedia.js';
 const WIDE = '(min-width:1280px)';
 const blank = (name) => ({ name, nodes: [], wires: [] });
 
-function readItems() {
-  try {
-    const raw = JSON.parse(load('circuits') ?? '[]');
-    // decode() is the trust boundary: it drops anything malformed.
-    return raw.map((i) => ({ id: String(i.id), circuit: decode(encode(i.circuit)) })).filter((i) => i.circuit);
-  } catch { return []; }
-}
-
 function boot(t) {
   let items = readItems();
+  const savedItems = items;
   const hash = location.hash.startsWith('#c=') ? location.hash.slice(3) : null;
   const shared = hash ? decode(hash) : null;
   const badLink = !!hash && !shared;
-  if (shared) return { items, editor: initEditor(newId('c'), shared, false), badLink };
-  if (!items.length) items = [{ id: newId('c'), circuit: { ...exampleCircuit(), name: t('cs.example') } }];
+  if (shared) return { items, savedItems, editor: initEditor(newId('c'), shared, false), sharedHash: location.hash, badLink };
+  const generatedExample = !items.length;
+  if (generatedExample) items = [{ id: newId('c'), circuit: { ...exampleCircuit(), name: t('cs.example') } }];
   const cur = items.find((i) => i.id === load('cur')) ?? items[0];
-  return { items, editor: initEditor(cur.id, cur.circuit, true), badLink };
+  return { items, savedItems, editor: initEditor(cur.id, cur.circuit, true), generatedExample, badLink };
 }
 
 export default function App() {
   const { t } = useI18n();
   const [init] = useState(() => boot(t));
-  const [editor, dispatch] = useEditor(init.editor);
+  const [editor, rawDispatch] = useEditor(init.editor);
   const [library, setLibrary] = useState(init.items);
   const [palette, setPalette] = useState(false);
   const [parts, setParts] = useState(false);
@@ -57,18 +52,31 @@ export default function App() {
   const [side, setSide] = useState(() => matchMedia(WIDE).matches && load('sidebar') !== '0'); // narrow screens start closed
   const [dark, setDark] = useState(() => (document.documentElement.dataset.theme ?? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')) === 'dark');
   const [toast, setToast] = useState(null);
+  const [saveAttempt, setSaveAttempt] = useState(0);
   const [fit, setFit] = useState(0);
   const [ttw, setTtw] = useState(() => Number(load('tt-width')) || null); // null = automatic 280/320px
   const [copySignal, setCopySignal] = useState(0);
   const [hover, setHover] = useState(null); // node id hovered on the canvas or in the Notation tab
   const anim = useRef(0);
   const viewRef = useRef(null);
+  const dispatch = useMemo(() => interruptibleDispatch(rawDispatch, anim, () => setToast((current) => current?.undo ? null : current), () => viewRef.current?.cancel()), [rawDispatch]);
+  const savedLibrary = useRef(init.savedItems);
+  const saveError = useRef(false);
+  const shareOwner = useRef(init.sharedHash ? { hash: init.sharedHash, id: init.editor.id } : null);
   const { circuit, sel, persisted, id } = editor;
+  const saved = persisted && JSON.stringify(library) === JSON.stringify(savedLibrary.current)
+    && savedLibrary.current.some((item) => item.id === id && JSON.stringify(item.circuit) === JSON.stringify(circuit));
+  const saveCircuit = () => {
+    saveError.current = false;
+    dispatch({ type: 'persist' });
+    setLibrary((items) => upsertItem(items, id, circuit));
+    setSaveAttempt((n) => n + 1);
+  };
 
   const notify = (msg, undo) => setToast({ msg, undo, k: Date.now() });
   useEffect(() => {
     if (!toast) return;
-    const tm = setTimeout(() => setToast(null), toast.undo ? 6000 : 2400); // an Undo button needs time to be reached
+    const tm = setTimeout(() => setToast(null), toast.undo || toast.saveError ? 6000 : 2400); // Allow time to reach Undo or read save recovery instructions.
     return () => clearTimeout(tm);
   }, [toast]);
   useEffect(() => { if (init.badLink) notify(t('toast.badLink')); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -90,51 +98,93 @@ export default function App() {
   // Autosave: mirror the open circuit into the library, then write the library after a short pause.
   useEffect(() => {
     if (!persisted) return;
-    setLibrary((l) => {
-      const at = l.findIndex((i) => i.id === id);
-      if (at < 0) return [...l, { id, circuit }];
-      if (l[at].circuit === circuit) return l;
-      return l.map((i, k) => (k === at ? { id, circuit } : i));
-    });
-    if (location.hash.startsWith('#c=')) history.replaceState(null, '', location.pathname + location.search);
+    setLibrary((items) => upsertItem(items, id, circuit));
   }, [circuit, persisted, id]);
   useEffect(() => {
-    const tm = setTimeout(() => {
-      save('circuits', JSON.stringify(library));
-      if (persisted) save('cur', id);
-    }, 200);
-    return () => clearTimeout(tm);
-  }, [library, persisted, id]);
+    if (persisted) save('cur', id);
+    if (JSON.stringify(library) === JSON.stringify(savedLibrary.current)) return;
+    const needsRecovery = !init.generatedExample || saveAttempt > 0 || library.some((item) => item.id !== init.editor.id || item.circuit !== init.editor.circuit);
+    let written = false;
+    const flush = () => {
+      if (written) return true; // Repeated exit events must not merge this old snapshot against its own acknowledgement.
+      const merged = mergeItems(savedLibrary.current, library, readItems());
+      if (!save('circuits', JSON.stringify(merged))) {
+        if (needsRecovery && !saveError.current) {
+          saveError.current = true;
+          setToast({ msg: t('toast.saveFailed'), saveError: true, k: Date.now() });
+        }
+        return false;
+      }
+      saveError.current = false;
+      setToast((current) => current?.saveError ? null : current);
+      written = true;
+      savedLibrary.current = merged;
+      setLibrary(merged);
+      return true;
+    };
+    const onHidden = () => { if (document.visibilityState === 'hidden') flush(); };
+    const onUnload = (e) => {
+      if (!flush() && needsRecovery) { e.preventDefault(); e.returnValue = ''; }
+    };
+    const tm = setTimeout(flush, 200);
+    document.addEventListener('visibilitychange', onHidden);
+    addEventListener('pagehide', flush);
+    addEventListener('beforeunload', onUnload);
+    return () => {
+      clearTimeout(tm);
+      document.removeEventListener('visibilitychange', onHidden);
+      removeEventListener('pagehide', flush);
+      removeEventListener('beforeunload', onUnload);
+    };
+  }, [library, persisted, id, saveAttempt]);
+  useEffect(() => {
+    // Retain recovery data until this circuit is saved; an older save must not clear a newer link.
+    const owner = shareOwner.current;
+    if (saved && owner?.id === id && owner.hash === location.hash) {
+      history.replaceState(null, '', location.pathname + location.search);
+      shareOwner.current = null;
+    }
+  });
+
+  useEffect(() => {
+    const mq = matchMedia('(prefers-color-scheme: light)');
+    const on = (e) => { if (!document.documentElement.dataset.theme) setDark(!e.matches); };
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, []);
+  useEffect(() => () => { anim.current++; }, []);
 
   const highlight = useMemo(() => (hover && circuit.nodes.some((n) => n.id === hover) ? cone(circuit, hover) : null), [circuit, hover]);
   const sealed = sel && (sel.kind === 'node' ? circuit.nodes.some((n) => n.id === sel.id) : circuit.wires.some((w) => w.id === sel.id)) ? sel : null;
 
-  function addPart(type, at) {
+  function addPart(type, at, exact = false) {
+    if (circuit.nodes.length >= MAX_NODES) { notify(t('toast.tooManyNodes', { n: MAX_NODES })); return; }
     let p = at ?? viewRef.current.center();
-    if (!at) while (circuit.nodes.some((n) => Math.hypot(n.x - p.x, n.y - p.y) < 12)) p = { x: p.x + 24, y: p.y + 24 };
+    if (!exact) while (circuit.nodes.some((n) => Math.hypot(n.x - p.x, n.y - p.y) < 12)) p = { x: p.x + 24, y: p.y + 24 };
     const nid = newId();
     dispatch({
       type: 'edit',
       sel: { kind: 'node', id: nid },
       fn: (c) => {
-        const node = { id: nid, type, x: Math.round(p.x), y: Math.round(p.y) };
+        const node = { id: nid, type, x: clampCoord(Math.round(p.x)), y: clampCoord(Math.round(p.y)) };
         if (type === 'INPUT' || type === 'OUTPUT') node.label = nextLabel(c, type);
         if (type === 'INPUT') node.value = 0;
         return { ...c, nodes: [...c.nodes, node] };
       },
     });
   }
-  const dropPart = (type, cx, cy) => { const w = viewRef.current.toWorld(cx, cy); if (w) addPart(type, w); };
+  const dropPart = (type, cx, cy) => { const w = viewRef.current.toWorld(cx, cy); if (w) addPart(type, w, true); };
 
   function duplicate() {
     const src = sealed?.kind === 'node' && circuit.nodes.find((n) => n.id === sealed.id);
     if (!src) return;
+    if (circuit.nodes.length >= MAX_NODES) { notify(t('toast.tooManyNodes', { n: MAX_NODES })); return; }
     const nid = newId();
     dispatch({
       type: 'edit',
       sel: { kind: 'node', id: nid },
       fn: (c) => {
-        const copy = { ...src, id: nid, x: src.x + 24, y: src.y + 24 };
+        const copy = { ...src, id: nid, x: clampCoord(src.x + 24), y: clampCoord(src.y + 24) };
         if (src.type === 'INPUT' || src.type === 'OUTPUT') copy.label = nextLabel(c, src.type);
         return { ...c, nodes: [...c.nodes, copy] };
       },
@@ -166,7 +216,8 @@ export default function App() {
     if (!circuit.nodes.length) return;
     const to = new Map(autoLayout(circuit).nodes.map((n) => [n.id, n]));
     const from = new Map(circuit.nodes.map((n) => [n.id, n]));
-    const put = (k) => dispatch({ type: 'set', fn: (c) => ({ ...c, nodes: c.nodes.map((n) => { const a = from.get(n.id); const b = to.get(n.id); return a && b ? { ...n, x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k } : n; }) }) });
+    const put = (k) => rawDispatch({ type: 'set', fn: (c) => ({ ...c, nodes: c.nodes.map((n) => { const a = from.get(n.id); const b = to.get(n.id); return a && b ? { ...n, x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k } : n; }) }) });
+    viewRef.current?.cancel();
     dispatch({ type: 'checkpoint' });
     const run = ++anim.current;
     const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -182,13 +233,28 @@ export default function App() {
 
   // One undo step; the view refits to the new circuit.
   function build(expr, mode) {
-    dispatch({ type: 'edit', sel: null, fn: (c) => exprToCircuit(expr, c, { mode }) });
+    const next = exprToCircuit(expr, circuit, { mode });
+    if (!next) { notify(t('toast.tooManyNodes', { n: MAX_NODES })); return false; }
+    dispatch({ type: 'edit', sel: null, fn: () => next });
     setHover(null);
     setFit((f) => f + 1);
     notify(t('nt.built'), () => dispatch({ type: 'undo' }));
   }
 
-  const open = (item, persistedFlag = true) => dispatch({ type: 'load', id: item.id, circuit: item.circuit, persisted: persistedFlag });
+  const open = (item, persistedFlag = true) => {
+    shareOwner.current = location.hash.startsWith('#c=') ? { hash: location.hash, id: item.id } : null;
+    dispatch({ type: 'load', id: item.id, circuit: item.circuit, persisted: persistedFlag });
+  };
+  useEffect(() => {
+    const onHash = () => {
+      if (!location.hash.startsWith('#c=')) return;
+      const shared = decode(location.hash.slice(3));
+      if (shared) open({ id: newId('c'), circuit: shared }, false);
+      else notify(t('toast.badLink'));
+    };
+    addEventListener('hashchange', onHash);
+    return () => removeEventListener('hashchange', onHash);
+  }, [dispatch, t]);
   const circuits = {
     onSwitch: (to) => { const it = library.find((i) => i.id === to); if (it) open(it); },
     onNew: () => {
@@ -198,11 +264,11 @@ export default function App() {
       for (let n = 2; taken.has(name); n++) name = `${base} ${n}`;
       open({ id: newId('c'), circuit: blank(name) });
     },
-    onRename: (which, name) => (which === id ? dispatch({ type: 'rename', name }) : setLibrary((l) => l.map((i) => (i.id === which ? { ...i, circuit: { ...i.circuit, name } } : i)))),
+    onRename: (which, name) => { name = circuitName(name); return (which === id ? dispatch({ type: 'rename', name }) : setLibrary((l) => l.map((i) => (i.id === which ? { ...i, circuit: { ...i.circuit, name } } : i)))); },
     onDelete: (which) => {
       const rest = library.filter((i) => i.id !== which);
       setLibrary(rest);
-      if (which === id || !persisted) open(rest[0] ?? { id: newId('c'), circuit: blank(t('cs.untitled')) });
+      if (which === id) open(rest[0] ?? { id: newId('c'), circuit: blank(t('cs.untitled')) });
     },
   };
   const clear = () => {
@@ -212,7 +278,7 @@ export default function App() {
   };
   const copyOf = (which, name) => {
     const src = which === id ? circuit : library.find((i) => i.id === which)?.circuit;
-    if (src) open({ id: newId('c'), circuit: { ...src, name } });
+    if (src) open({ id: newId('c'), circuit: { ...src, name: circuitName(name) } });
   };
   const copy = (name) => copyOf(id, name);
   const setTT = (w, keep = true) => { setTtw(w); if (keep) save('tt-width', w ?? ''); };
@@ -233,15 +299,15 @@ export default function App() {
 
   // Global keys read the latest handlers through a ref, so the listener is attached once.
   const latest = useRef(null);
-  latest.current = { saved: t('status.saved'), palette, overlay: side && !wide, addPart, duplicate, remove, autoFormat };
+  latest.current = { saveCircuit, palette, overlay: side && !wide, addPart, duplicate, remove, autoFormat };
   useEffect(() => {
     const onKey = (e) => {
       const L = latest.current;
-      const typing = /^(INPUT|TEXTAREA)$/.test(e.target.tagName) || e.target.isContentEditable || e.target.getAttribute?.('role') === 'textbox' || !!e.target.closest?.('[role=menu],[role=dialog],[role=alertdialog]'); // menus, popovers and dialogs own their keys
+      const typing = /^(INPUT|TEXTAREA)$/.test(e.target.tagName) || e.target.isContentEditable || e.target.getAttribute?.('role') === 'textbox' || !!e.target.closest?.('[data-expression-editor],[role=menu],[role=dialog],[role=alertdialog]'); // menus, popovers and dialogs own their keys
       const mod = e.metaKey || e.ctrlKey;
       const k = e.key.toLowerCase();
       if (mod && k === 'k') { e.preventDefault(); setPalette((o) => !o); return; }
-      if (mod && k === 's') { e.preventDefault(); dispatch({ type: 'persist' }); notify(L.saved); return; }
+      if (mod && k === 's') { e.preventDefault(); L.saveCircuit(); return; }
       if (L.palette || typing) return;
       if (mod && k === 'z') { e.preventDefault(); dispatch({ type: e.shiftKey ? 'redo' : 'undo' }); return; }
       if (mod && k === 'd') { e.preventDefault(); L.duplicate(); return; }
@@ -274,6 +340,7 @@ export default function App() {
       <Header
         tier={tier}
         editor={editor}
+        saved={saved}
         sidebar={side}
         onSidebar={toggleSide}
         canUndo={editor.past.length > 0}
@@ -282,7 +349,7 @@ export default function App() {
         copySignal={copySignal}
         dark={dark}
         shareUrl={shareUrl}
-        actions={{ undo: () => dispatch({ type: 'undo' }), redo: () => dispatch({ type: 'redo' }), theme, save: () => dispatch({ type: 'persist' }), clear, copy, circuits }}
+        actions={{ undo: () => dispatch({ type: 'undo' }), redo: () => dispatch({ type: 'redo' }), theme, save: saveCircuit, clear, copy, circuits }}
       />
       <main className={`relative grid min-h-0 ${mainCls}`} style={ttw ? { '--tt': `${ttw}px` } : undefined}>
         {side && !wide && <div className="absolute inset-0 z-20 bg-scrim" onPointerDown={() => setSide(false)} />}

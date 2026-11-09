@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import { evaluate } from '../logic.js';
 import { circuitExprs, cone } from '../notation.js';
 import { useI18n } from '../I18n.jsx';
@@ -34,7 +34,7 @@ export function NotationPeek({ circuit }) {
   );
 }
 
-export default function NotationPanel({ circuit, hover, onHover, onBuild, sheet, compact }) {
+export default function NotationPanel({ circuit, hover, onHover, onBuild, sheet, compact, draft }) {
   const { t } = useI18n();
   const { outputs, nodes, order } = useMemo(() => circuitExprs(circuit), [circuit]);
   const ev = useMemo(() => evaluate(circuit), [circuit]);
@@ -43,13 +43,20 @@ export default function NotationPanel({ circuit, hover, onHover, onBuild, sheet,
   const letters = useMemo(() => keypadLetters(circuit), [circuit]);
   const baseLabels = useMemo(() => circuit.nodes.filter((n) => n.type === 'INPUT' && n.label).map((n) => n.label), [circuit]);
 
+  const pointerType = useRef(null);
+
   // Touch has no hover: a tap on a row toggles it. Mouse and keyboard focus follow the pointer.
   const rowEvents = (id) => ({
+    onPointerDown: (e) => { pointerType.current = e.pointerType; },
     onPointerEnter: (e) => e.pointerType === 'mouse' && onHover(id),
     onPointerLeave: (e) => e.pointerType === 'mouse' && onHover(null),
-    onFocus: () => onHover(id),
+    onFocus: (e) => e.currentTarget.matches(':focus-visible') && onHover(id),
     onBlur: () => onHover(null),
-    onClick: (e) => e.pointerType !== 'mouse' && onHover(hover === id ? null : id),
+    onClick: (e) => {
+      const type = pointerType.current;
+      pointerType.current = null;
+      if (e.detail !== 0 && ['touch', 'pen'].includes(type)) onHover(hover === id ? null : id);
+    },
   });
 
   const cards = outputs.map((o) => {
@@ -88,7 +95,7 @@ export default function NotationPanel({ circuit, hover, onHover, onBuild, sheet,
       {!compact && <div className="mt-1 flex items-center justify-between gap-2"><span className="text-xs font-[550] text-muted">{t('nt.from')}</span><span className="text-xs text-muted">{t('nt.hint')}</span></div>}
       {cards.length ? cards : <p className="text-sm text-muted text-pretty">{t('nt.noOut')}</p>}
       {!compact && <div className="mt-2.5 flex items-center justify-between gap-2"><span className="text-xs font-[550] text-muted">{t('nt.build')}</span><span className="text-xs text-muted">{t('nt.buildHint')}</span></div>}
-      <ExprEditor letters={letters} baseLabels={baseLabels} onBuild={onBuild} sheet={sheet} />
+      <ExprEditor letters={letters} baseLabels={baseLabels} onBuild={onBuild} sheet={sheet} draft={draft} />
     </div>
   );
 }

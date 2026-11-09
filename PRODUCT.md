@@ -24,7 +24,7 @@ Used on desktop (mouse + keyboard) and on tablets with touch. Controls must work
 
 ## Capabilities and Constraints
 
-- Node types today: input switch (ON/OFF), OUTPUT, NOT, AND, AND (3 inputs), NAND, OR, NOR, XOR.
+- Node types today: input switch (ON/OFF), OUTPUT, NOT, AND, AND (3 inputs), NAND, OR, NOR, XOR, XNOR.
 - Wires connect an output port to an input port; nodes can be deleted.
 - In scope for drafts: live truth table for the current circuit, signal state (0/1) visible on wires, saving and sharing named circuits.
 - Not in scope yet: custom chips / packaging a circuit as a reusable block.

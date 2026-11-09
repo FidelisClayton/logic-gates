@@ -151,6 +151,7 @@ svg.g { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linejoin: ro
 .halo { fill: none; stroke: var(--bg); stroke-width: 7; }
 .wsel { fill: none; stroke: var(--sel); stroke-width: 6; stroke-linecap: round; opacity: .5; }
 .whit { fill: none; stroke: transparent; stroke-width: 22; cursor: pointer; }
+.whit:focus-visible { stroke: var(--sig); stroke-opacity: .35; outline: 2px solid transparent; }
 .body { fill: var(--bg); stroke: var(--gate); stroke-width: 1.5; stroke-linejoin: round; }
 .stub { stroke-width: 1.5; stroke-linecap: round; }
 .chip rect { rx: 4; }
@@ -207,7 +208,7 @@ table.tt { border-collapse: collapse; width: 100%; font-variant-numeric: tabular
 .tt tr.now td.out.v1 { background: var(--sig-soft); }
 .tt tr.now td:first-child { border-radius: 6px 0 0 6px; }
 .tt tr.now td:last-child { border-radius: 0 6px 6px 0; }
-.tt.covered td.out:not(.shown) { color: transparent; background: var(--raised); cursor: pointer; }
+.tt.covered tr td.out:not(.shown) { color: transparent; background: var(--raised); cursor: pointer; }
 
 /* Command palette rows reuse the rail row look */
 .cmd-row.act { background: var(--hover); }
